@@ -9,8 +9,9 @@ const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '../../..');
 
 export class ProcessManager extends EventEmitter {
-  constructor() {
+  constructor(options = {}) {
     super();
+    this.stopTimeoutMs = options.stopTimeoutMs ?? 5000;
 
     // Registry of managed native host services
     this.services = [
@@ -125,6 +126,7 @@ export class ProcessManager extends EventEmitter {
   async startService(id) {
     const svc = this.getService(id);
     if (!svc) throw new Error(`Unknown service: ${id}`);
+    if (svc.stopPromise) await svc.stopPromise;
     if (svc.status === 'RUNNING' && svc.child) return svc;
 
     svc.status = 'STARTING';
@@ -175,6 +177,7 @@ export class ProcessManager extends EventEmitter {
 
     child.on('exit', (code, signal) => {
       this.appendLog(svc.id, 'system', `Process exited with code ${code} (signal: ${signal})`);
+      if (svc.child !== child) return;
       svc.status = 'STOPPED';
       svc.child = null;
       svc.pid = null;
@@ -195,6 +198,10 @@ export class ProcessManager extends EventEmitter {
   async stopService(id) {
     const svc = this.getService(id);
     if (!svc) throw new Error(`Unknown service: ${id}`);
+    if (svc.stopPromise) {
+      await svc.stopPromise;
+      return svc;
+    }
     if (!svc.child) {
       svc.status = 'STOPPED';
       return svc;
@@ -202,24 +209,44 @@ export class ProcessManager extends EventEmitter {
 
     this.appendLog(svc.id, 'system', `Stopping ${svc.name} (PID ${svc.pid})...`);
 
+    const child = svc.child;
+    // Retain ownership until exit: kill() only sends a signal. A fixed restart
+    // delay can otherwise overlap children and let an old exit detach the new one.
+    const stopping = new Promise((resolve, reject) => {
+      const cleanup = () => {
+        clearTimeout(killTimer);
+        child.removeListener('exit', onExit);
+        child.removeListener('error', onError);
+      };
+      const onExit = () => {
+        cleanup();
+        resolve();
+      };
+      const onError = (err) => {
+        cleanup();
+        reject(err);
+      };
+      const killTimer = setTimeout(() => {
+        this.appendLog(svc.id, 'system', `Graceful shutdown timed out; killing PID ${child.pid}`);
+        try { child.kill('SIGKILL'); } catch (err) { onError(err); }
+      }, this.stopTimeoutMs);
+      killTimer.unref();
+      child.once('exit', onExit);
+      child.once('error', onError);
+      try { child.kill('SIGTERM'); } catch (err) { onError(err); }
+    });
+    svc.stopPromise = stopping;
     try {
-      svc.child.kill('SIGTERM');
-    } catch {
-      try { svc.child.kill('SIGKILL'); } catch {}
+      await stopping;
+    } finally {
+      if (svc.stopPromise === stopping) svc.stopPromise = null;
     }
 
-    svc.child = null;
-    svc.status = 'STOPPED';
-    svc.pid = null;
-    svc.startTime = null;
-
-    this.emit('status_change', { id: svc.id, status: svc.status });
     return svc;
   }
 
   async restartService(id) {
     await this.stopService(id);
-    await new Promise(r => setTimeout(r, 500));
     return await this.startService(id);
   }
 

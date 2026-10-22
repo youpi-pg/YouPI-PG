@@ -1,6 +1,10 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { once } from 'node:events';
 import { getAdminToken } from '@youpi/common';
 import { startControlCenter } from '../index.js';
 import { ProcessManager } from '../process-manager.js';
@@ -119,5 +123,101 @@ describe('Control Center Supervisor Integration Tests', () => {
     const healthCheck = await get('/health');
     assert.equal(healthCheck.status, 200);
     assert.equal(healthCheck.body.status, 'UP');
+  });
+});
+
+describe('ProcessManager child lifecycle', () => {
+  function fixture(t, shutdownBody, options = {}) {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'youpi-process-test-'));
+    const script = path.join(directory, 'service.cjs');
+    fs.writeFileSync(script, `
+      process.on('SIGTERM', () => { ${shutdownBody} });
+      setInterval(() => {}, 1000);
+      process.send('ready');
+    `);
+    const pm = new ProcessManager(options);
+    pm.services = [{ id: 'fixture', name: 'Lifecycle fixture', script, port: 1, status: 'STOPPED', child: null }];
+    const children = [];
+    t.after(async () => {
+      for (const child of children) {
+        if (child.exitCode === null && child.signalCode === null) {
+          const exited = once(child, 'exit');
+          child.kill('SIGKILL');
+          await exited;
+        }
+      }
+      fs.rmSync(directory, { recursive: true, force: true });
+    });
+    return {
+      pm,
+      children,
+      async start() {
+        const svc = await pm.startService('fixture');
+        children.push(svc.child);
+        await once(svc.child, 'message');
+        return svc;
+      }
+    };
+  }
+
+  test('stopService resolves only after the child exits', async (t) => {
+    const { pm, start } = fixture(t, 'setTimeout(() => process.exit(0), 100);');
+    const svc = await start();
+    const child = svc.child;
+    const stopping = pm.stopService('fixture');
+    assert.ok(svc.child === child, 'the process must remain tracked while it is alive');
+    await stopping;
+    assert.equal(child.exitCode, 0);
+    assert.equal(svc.child, null);
+    assert.equal(svc.status, 'STOPPED');
+    assert.equal(svc.pid, null);
+  });
+
+  test('restart waits for a slow shutdown and retains the replacement child', async (t) => {
+    const { pm, start, children } = fixture(t, 'setTimeout(() => process.exit(0), 800);');
+    const svc = await start();
+    const original = svc.child;
+    const originalExit = once(original, 'exit');
+    await pm.restartService('fixture');
+    const replacement = svc.child;
+    children.push(replacement);
+    await once(replacement, 'message');
+    const originalExitedBeforeReplacement = original.exitCode !== null;
+    await originalExit;
+
+    assert.equal(originalExitedBeforeReplacement, true, 'replacement must start after the original exits');
+    assert.notEqual(replacement.pid, original.pid);
+    assert.equal(svc.child, replacement, 'an old exit event must not detach the replacement');
+    assert.equal(svc.pid, replacement.pid);
+    assert.equal(svc.status, 'RUNNING');
+  });
+
+  test('a start arriving during stop waits instead of spawning an overlapping child', async (t) => {
+    const { pm, start, children } = fixture(t, 'setTimeout(() => process.exit(0), 100);');
+    const svc = await start();
+    const original = svc.child;
+    const stopping = pm.stopService('fixture');
+    const restarting = pm.startService('fixture');
+    await stopping;
+    await restarting;
+    const replacement = svc.child;
+    children.push(replacement);
+    await once(replacement, 'message');
+
+    assert.equal(original.exitCode, 0);
+    assert.notEqual(replacement.pid, original.pid);
+    assert.equal(svc.child, replacement);
+    assert.equal(svc.status, 'RUNNING');
+  });
+
+  test('a child ignoring SIGTERM is killed after the graceful shutdown deadline', async (t) => {
+    const { pm, start } = fixture(t, '', { stopTimeoutMs: 50 });
+    const svc = await start();
+    const original = svc.child;
+    await pm.stopService('fixture');
+
+    assert.equal(original.signalCode, 'SIGKILL');
+    assert.equal(svc.status, 'STOPPED');
+    assert.equal(svc.child, null);
   });
 });
