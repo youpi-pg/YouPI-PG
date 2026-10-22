@@ -6,10 +6,12 @@ process.env.NODE_ENV = process.env.NODE_ENV || 'test';
 import { createPaymentApp } from '../index.js';
 import { Database } from '@youpi/db';
 import { authFetch } from '../../../../scripts/test-support.js';
+import { createOfflineWhatsApp } from './fixtures/offline-whatsapp.js';
 
 test('WhatsApp Berry Protocol OTP Customer Auth & Merchant Configuration Suite', async (t) => {
   const customDb = new Database({ inMemory: true });
-  const app = createPaymentApp(customDb, { otpCooldownMs: 0 });
+  const whatsapp = createOfflineWhatsApp();
+  const app = createPaymentApp(customDb, { otpCooldownMs: 0, whatsappBerryService: whatsapp });
   const testPort = 6288;
 
   const serverInstance = await new Promise(resolve => {
@@ -170,18 +172,22 @@ test('WhatsApp Berry Protocol OTP Customer Auth & Merchant Configuration Suite',
     const data = await res.json();
     assert.equal(data.success, true);
     assert.ok(data.qrCode);
+    assert.ok(whatsapp.calls.some(call => call.method === 'initialize'));
   });
 
   await t.test('11. Merchant WhatsApp pairing-code API accepts phone and returns 8-digit code', async () => {
     const res = await authFetch(`${apiBase}/api/v1/admin/whatsapp/pairing-code`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phoneNumber: '918796266491' })
+      body: JSON.stringify({ phoneNumber: '919999999999' })
     });
     assert.equal(res.status, 200);
     const data = await res.json();
     assert.equal(data.success, true);
-    assert.ok(data.pairingCode);
+    assert.equal(data.pairingCode, '12345678');
+    assert.deepEqual(whatsapp.calls.find(call => call.method === 'requestPairingCode'), {
+      method: 'requestPairingCode', phoneNumber: '919999999999'
+    });
   });
 
   await t.test('12. Merchant WhatsApp disconnect API safely clears session', async () => {
