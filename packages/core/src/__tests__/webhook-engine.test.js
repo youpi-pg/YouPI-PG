@@ -285,3 +285,101 @@ describe('Webhook Engine Integration Tests', () => {
     assert.match(recorded.response_body, /webhookSecret is not configured/);
   });
 });
+
+describe('Webhook retry claim lifetime', () => {
+  function pendingDeliveries(count) {
+    const db = new Database({ inMemory: true });
+    runMigrations(db);
+    const sessionRepo = new PaymentSessionRepository(db);
+    const merchantRepo = new MerchantRepository(db);
+    const merchant = merchantRepo.create({
+      businessName: 'Retry claim store',
+      slug: 'retry-claim-store',
+      contactEmail: 'retry@example.com',
+      contactPhone: '9876543210',
+      webhookUrl: 'https://example.com/webhook',
+      webhookSecret: 'synthetic-retry-claim-secret'
+    });
+    const session = sessionRepo.create({
+      merchantId: merchant.id,
+      orderId: 'RETRY-CLAIM',
+      amountPaise: 10000n
+    });
+    const timestamp = Date.now() - 1000;
+    for (let i = 0; i < count; i++) {
+      const id = `retry-${String(i).padStart(2, '0')}`;
+      db.execute(`
+        INSERT INTO webhook_deliveries (
+          id, merchant_id, payment_id, event_type, payload, endpoint_url, next_retry_at
+        ) VALUES (?, ?, ?, 'SUCCESS', ?, ?, ?)
+      `, [id, merchant.id, session.id, JSON.stringify({ deliveryId: id, timestamp }), merchant.webhookUrl, new Date(timestamp).toISOString()]);
+    }
+    return {
+      db,
+      engine: new WebhookEngine({ db, merchantRepo }),
+      otherEngine: new WebhookEngine({ db, merchantRepo })
+    };
+  }
+
+  test('overlapping sweeps send each due delivery once when a slow batch exceeds the claim lease', async (t) => {
+    const { db, engine, otherEngine } = pendingDeliveries(10);
+    t.after(() => db.close());
+    t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+    const sent = new Map();
+    let requests = 0;
+    let overlappingSweep;
+    t.mock.method(globalThis, 'fetch', async (_url, options) => {
+      const id = options.headers['X-Gateway-Delivery-Id'];
+      sent.set(id, (sent.get(id) || 0) + 1);
+      requests++;
+      // Each response takes less than the HTTP timeout, but the sequential batch
+      // exceeds the 60s lease. A second worker wakes while request eight is in flight.
+      if (requests <= 8) t.mock.timers.tick(9000);
+      if (requests === 8) overlappingSweep = otherEngine.retryPending();
+      return { ok: true, status: 200, text: async () => 'OK' };
+    });
+
+    const results = await engine.retryPending();
+    const overlappingResults = await overlappingSweep;
+    assert.equal(requests, 10, 'a slow backlog must not create duplicate HTTP requests');
+    assert.equal(results.length + overlappingResults.length, 10);
+    assert.equal(sent.size, 10);
+    for (const count of sent.values()) assert.equal(count, 1);
+    for (const row of db.query('SELECT attempt_count, is_successful FROM webhook_deliveries')) {
+      assert.equal(row.attempt_count, 2, 'waiting for an earlier delivery must not consume attempts');
+      assert.equal(row.is_successful, 1);
+    }
+  });
+
+  test('a second worker can process waiting deliveries while the first request is in flight', async (t) => {
+    const { db, engine, otherEngine } = pendingDeliveries(3);
+    t.after(() => db.close());
+    let releaseFirst;
+    const firstResponse = new Promise(resolve => { releaseFirst = resolve; });
+    let requests = 0;
+    t.mock.method(globalThis, 'fetch', async () => {
+      if (++requests === 1) await firstResponse;
+      return { ok: true, status: 200, text: async () => 'OK' };
+    });
+
+    const firstSweep = engine.retryPending();
+    let secondResults;
+    try {
+      secondResults = await otherEngine.retryPending();
+    } finally {
+      releaseFirst();
+      await firstSweep;
+    }
+    assert.equal(secondResults.length, 2);
+    assert.equal(requests, 3);
+  });
+
+  test('a sweep remains bounded to twenty deliveries', async (t) => {
+    const { db, engine } = pendingDeliveries(21);
+    t.after(() => db.close());
+    t.mock.method(globalThis, 'fetch', async () => ({ ok: true, status: 200, text: async () => 'OK' }));
+
+    assert.equal((await engine.retryPending()).length, 20);
+    assert.equal(db.queryOne('SELECT COUNT(*) AS count FROM webhook_deliveries WHERE attempt_count = 1').count, 1);
+  });
+});
