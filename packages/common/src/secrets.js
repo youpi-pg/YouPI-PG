@@ -26,7 +26,7 @@ export function resolveSecret(name, envVar) {
   let value = '';
   try { value = fs.readFileSync(file, 'utf8').trim(); } catch {}
   if (!value) {
-    fs.mkdirSync(SECRETS_DIR, { recursive: true });
+    fs.mkdirSync(SECRETS_DIR, { recursive: true, mode: 0o700 });
     const fresh = crypto.randomBytes(32).toString('hex');
     try {
       fs.writeFileSync(file, fresh, { flag: 'wx', mode: 0o600 });
@@ -36,6 +36,10 @@ export function resolveSecret(name, envVar) {
       value = fs.readFileSync(file, 'utf8').trim();
     }
   }
+  // Harden permissions for pre-existing stores as well as freshly generated keys.
+  // chmod can be unavailable on some hosts (e.g. Windows), so fail best-effort here.
+  try { fs.chmodSync(SECRETS_DIR, 0o700); } catch {}
+  try { fs.chmodSync(file, 0o600); } catch {}
   cache.set(name, value);
   return value;
 }

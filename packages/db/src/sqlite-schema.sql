@@ -198,6 +198,23 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
 
 CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_retry ON webhook_deliveries (is_successful, next_retry_at);
 
+-- Durable terminal-event outbox: populated in the same SQLite transaction as the status update.
+-- Only NEW terminal transitions are queued; migrations must never replay historic orders.
+CREATE TABLE IF NOT EXISTS payment_webhook_outbox (
+    payment_id TEXT PRIMARY KEY REFERENCES payment_sessions(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL CHECK(event_type IN ('SUCCESS','FAILED','EXPIRED','CANCELLED')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE TRIGGER IF NOT EXISTS trg_terminal_payment_webhook_outbox
+AFTER UPDATE OF status ON payment_sessions
+WHEN NEW.status IN ('SUCCESS','FAILED','EXPIRED','CANCELLED')
+ AND OLD.status NOT IN ('SUCCESS','FAILED','EXPIRED','CANCELLED')
+BEGIN
+    INSERT OR IGNORE INTO payment_webhook_outbox (payment_id, event_type)
+    VALUES (NEW.id, NEW.status);
+END;
+
 -- 8. Support Tickets & Ticket Messages
 CREATE TABLE IF NOT EXISTS support_tickets (
     id TEXT PRIMARY KEY,

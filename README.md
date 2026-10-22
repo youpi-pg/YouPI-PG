@@ -65,6 +65,27 @@
 
 <br/>
 
+## Security maintenance notes (fork hardening branch)
+
+This repository is **experimental and not independently certified or safe for unattended real-money processing**. Any SUCCESS reported by SMS, push notification or email parsing requires independent bank-ledger reconciliation before fulfillment. WhatsApp OTP is contact verification, not proof of payment or fraud immunity.
+
+### Terminal-webhook crash recovery
+
+A newly terminal payment creates a SQLite **payment_webhook_outbox** entry through a database trigger in the same transaction as the status change. The Payment API prepares a durable `webhook_deliveries` row **before** issuing HTTP requests, then updates delivery status after the HTTP response. Startup recovery and the periodic retry worker replay pending outbox entries and existing delivery rows. Existing historic terminal transactions are **not** automatically re-emitted during migration. A merchant endpoint must deduplicate by `X-Gateway-Delivery-Id` because a crash after receipt can still cause a retry (at-least-once, not exactly-once).
+
+This mitigation does **not** resolve alert spoofing, UPI settlement validation, late and misattributed credits, legal/regulatory obligations, refund disputes or full production readiness.
+
+For the implementation status and residual risk register, see [SECURITY_AUDIT.md](SECURITY_AUDIT.md).
+
+### Before any deployment
+
+- Run `npm test` and review the CI results; perform controlled crash/restart and observation-replay testing using synthetic data.
+- Use distinct randomly generated admin, observer, JWT, encryption and webhook secrets; rotate any keys inherited from prior deployments. Never publish `.env`, bank messages, OTPs, or customer data.
+- Review the bank/account terms and applicable UPI/payment-system requirements; do not infer compliance from this code.
+- Confirm merchant webhook URLs use HTTPS, verify HMAC over raw request bytes, enforce event/amount/order checks, deduplicate deliveries, and reconcile against official bank records before delivering goods.
+- Back up SQLite (including WAL state), monitor outbox backlog and permanently failed webhooks, and provide a human reconciliation/appeal path.
+- `npm run dev` is local experimentation; `npm start` requires valid production configuration and must not be exposed casually.
+
 ##  Live Product Demos
 
 See **YOUPI PG V2** live in action across Desktop and Mobile checkout flows:
@@ -190,7 +211,7 @@ Rebrand the checkout portal completely through the Merchant Admin Panel:
 ### 8.  5 Standardized Merchant Outcome Pages
 The application includes the following customer outcome pages:
 - `/order-success` — Payment verified by observers, order marked paid and provisioned.
-- `/order-failed` — Verification timed out, reassuring customer no money was lost.
+- `/order-failed` — Verification timed out; payment may still settle, so provide reconciliation/support rather than claiming no money was lost.
 - `/order-suspicious` — Flagged by fraud heuristics, held for manual compliance review.
 - `/order-expired` — 5-minute session elapsed, slot released for queued customers.
 - `/order-cancelled` — Customer cancelled checkout session.
@@ -234,8 +255,7 @@ This section is a practical project warning, not a certification, compliance che
 ##  Quickstart in 60 Seconds
  
 ### Prerequisites
-- **Node.js `>= 22.13.0` LTS** (Recommended: Node 24 LTS, `node -v`) for native `node:sqlite` (`DatabaseSync`) engine.
-  `node:sqlite` was added in Node 22.5.0 but only unflagged in **22.13.0**, so 22.5.0–22.12.x cannot run this project without `--experimental-sqlite`.
+- **Node.js `>= 24.0.0`** (check with `node -v`), as required by `package.json`, for native `node:sqlite`.
 - Standard Linux, macOS, or Windows host
 - *External database services (PostgreSQL/Redis) are completely optional!*
 

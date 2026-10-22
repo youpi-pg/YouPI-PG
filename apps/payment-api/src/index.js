@@ -128,6 +128,7 @@ export function createPaymentApp(customDb = null, options = {}) {
   const webhookEngine = new WebhookEngine({
     db,
     merchantRepo,
+    sessionRepo,
     maxRetries: Number(process.env.WEBHOOK_MAX_RETRIES || 5)
   });
 
@@ -309,7 +310,7 @@ export function createPaymentApp(customDb = null, options = {}) {
   // an unhandled error that can take the process down.
   const webhookRetryDaemon = setInterval(() => {
     try {
-      const outcome = webhookEngine.retryPending();
+      const outcome = webhookEngine.recoverOutbox().then(() => webhookEngine.retryPending());
       if (outcome && typeof outcome.catch === 'function') outcome.catch(() => {});
     } catch {}
   }, Number(process.env.WEBHOOK_RETRY_INTERVAL_MS || 5000));
@@ -332,6 +333,10 @@ export function createPaymentApp(customDb = null, options = {}) {
 
   // Execute crash recovery on boot
   const recoveryStats = recoveryEngine.recover();
+  // Replay only outboxed transitions that lack a durable delivery record.
+  webhookEngine.recoverOutbox().catch(err => {
+    console.error('[webhook] Failed to recover terminal-event outbox:', err.message);
+  });
 
   // Health check routes
   const healthHandler = (req, res) => {

@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { PaymentSessionRepository } from '@youpi/db';
 import { generateHmac, toRupeesString, validateOutboundWebhookUrl } from '@youpi/common';
 import { isTerminalStatus, toPublicOutcome } from './state-machine.js';
 
@@ -13,7 +14,8 @@ export class WebhookEngine {
   constructor(options) {
     this.db = options.db;
     this.merchantRepo = options.merchantRepo;
-    this.maxRetries = options.maxRetries || 5;
+    this.sessionRepo = options.sessionRepo || new PaymentSessionRepository(this.db);
+    this.maxRetries = Math.max(2, Math.min(20, Number(options.maxRetries) || 5));
   }
 
   /**
@@ -31,8 +33,29 @@ export class WebhookEngine {
     const publicOutcome = isTerminalStatus(event) ? toPublicOutcome(event) : event;
     const nowIso = new Date().toISOString();
 
-    // 1. Up-front secret validation: if webhookSecret is missing, persist a failed row so it is auditable
+    // One durable delivery per payment/event, including duplicate or replayed in-process
+    // events. SQLite serializes the final create-or-read in the transaction below.
+    const prior = this.db.queryOne(
+      'SELECT id, is_successful, response_status, response_body FROM webhook_deliveries WHERE payment_id = ? AND event_type = ? ORDER BY created_at DESC LIMIT 1',
+      [session.id, publicOutcome]
+    );
+    if (prior) {
+      return { delivered: Boolean(prior.is_successful), deliveryId: prior.id, status: prior.response_status, error: prior.is_successful ? undefined : prior.response_body };
+    }
+
+    // Terminal transitions already have a durable outbox entry. If configuration
+    // is missing or unsafe, KEEP that entry instead of recording an irrecoverable
+    // synthetic failure row; the operator can repair configuration and replay.
+    const isOutboxed = Boolean(this.db.queryOne(
+      'SELECT payment_id FROM payment_webhook_outbox WHERE payment_id = ?',
+      [session.id]
+    ));
+
+    // Direct non-outboxed dispatches still write an auditable failure record.
     if (!merchant.webhookSecret) {
+      if (isOutboxed) {
+        return { delivered: false, deliveryId: '', status: 500, error: 'Merchant webhookSecret is not configured.' };
+      }
       const deliveryId = crypto.randomUUID();
       this.db.execute(`
         INSERT INTO webhook_deliveries (
@@ -54,6 +77,9 @@ export class WebhookEngine {
     // 2. Re-validate at dispatch time (SSRF guard)
     const endpointCheck = validateOutboundWebhookUrl(merchant.webhookUrl);
     if (!endpointCheck.valid) {
+      if (isOutboxed) {
+        return { delivered: false, deliveryId: '', status: 400, error: `Webhook delivery blocked: ${endpointCheck.error}` };
+      }
       const deliveryId = crypto.randomUUID();
       this.db.execute(`
         INSERT INTO webhook_deliveries (
@@ -123,6 +149,30 @@ export class WebhookEngine {
       'X-Gateway-Timestamp': timestamp
     };
 
+    // Persist BEFORE network IO. A worker dying during fetch must leave an eligible
+    // retry with its original deliveryId, timestamp and exact payload bytes.
+    // The 60s lease avoids two senders racing while an attempt is in flight.
+    const recoveryAt = new Date(Date.now() + 60000).toISOString();
+    const existing = this.db.transaction(() => {
+      const row = this.db.queryOne(
+        'SELECT id, is_successful, response_status, response_body FROM webhook_deliveries WHERE payment_id = ? AND event_type = ? ORDER BY created_at DESC LIMIT 1',
+        [session.id, publicOutcome]
+      );
+      if (row) return row;
+      this.db.execute(`
+        INSERT INTO webhook_deliveries (
+          id, merchant_id, payment_id, event_type, payload, endpoint_url,
+          response_status, response_body, attempt_count, is_successful, next_retry_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, 1, 0, ?, ?)
+      `, [deliveryId, merchant.id, session.id, publicOutcome, payloadString, merchant.webhookUrl, recoveryAt, nowIso]);
+      // Outbox cleanup commits together with durable delivery preparation.
+      this.db.execute('DELETE FROM payment_webhook_outbox WHERE payment_id = ?', [session.id]);
+      return null;
+    });
+    if (existing) {
+      return { delivered: Boolean(existing.is_successful), deliveryId: existing.id, status: existing.response_status, error: existing.is_successful ? undefined : existing.response_body };
+    }
+
     let responseStatus = null;
     let responseBody = null;
     let isSuccessful = false;
@@ -144,29 +194,15 @@ export class WebhookEngine {
       responseBody = err.message || 'Network timeout';
     }
 
-    // Persist delivery record in webhook_deliveries
     const nextRetryAt = isSuccessful
       ? null
-      : new Date(Date.now() + 5000).toISOString(); // initial 5s backoff
+      : new Date(Date.now() + 5000).toISOString();
 
     this.db.execute(`
-      INSERT INTO webhook_deliveries (
-        id, merchant_id, payment_id, event_type, payload, endpoint_url,
-        response_status, response_body, attempt_count, is_successful, next_retry_at, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
-    `, [
-      deliveryId,
-      merchant.id,
-      session.id,
-      publicOutcome,
-      payloadString,
-      merchant.webhookUrl,
-      responseStatus,
-      responseBody,
-      isSuccessful ? 1 : 0,
-      nextRetryAt,
-      nowIso
-    ]);
+      UPDATE webhook_deliveries
+      SET response_status = ?, response_body = ?, is_successful = ?, next_retry_at = ?
+      WHERE id = ?
+    `, [responseStatus, responseBody, isSuccessful ? 1 : 0, nextRetryAt, deliveryId]);
 
     return {
       delivered: isSuccessful,
@@ -174,6 +210,33 @@ export class WebhookEngine {
       status: responseStatus,
       error: isSuccessful ? undefined : responseBody
     };
+  }
+
+  /**
+   * Prepare and send terminal events committed before a crash but not yet turned
+   * into delivery records. The trigger records only new terminal transitions;
+   * historic SUCCESS rows are never swept into webhooks on upgrade.
+   */
+  async recoverOutbox() {
+    const rows = this.db.query(`
+      SELECT o.payment_id, o.event_type
+      FROM payment_webhook_outbox o
+      WHERE NOT EXISTS (
+        SELECT 1 FROM webhook_deliveries d
+        WHERE d.payment_id = o.payment_id AND d.event_type = o.event_type
+      )
+      ORDER BY o.created_at, o.payment_id LIMIT 20
+    `);
+    const outcomes = [];
+    for (const row of rows) {
+      const session = this.sessionRepo.findById(row.payment_id);
+      if (!session) continue;
+      const merchant = this.merchantRepo.findById(session.merchantId);
+      // Keep unconfigured merchants' events in the outbox for human remediation.
+      if (!merchant?.webhookUrl || !merchant.webhookSecret) continue;
+      outcomes.push(await this.dispatch(row.event_type, session));
+    }
+    return outcomes;
   }
 
   /**
