@@ -1216,6 +1216,15 @@
         <span id="headerStoreText">Store (5000): Checking...</span>
       </div>
 
+      <!-- Merchant Account Switcher -->
+      <div style="display:flex; align-items:center; gap:0.35rem; background:var(--bg-card); padding:0.25rem 0.6rem; border-radius:9999px; border:1px solid var(--border);">
+        <span style="font-size:0.75rem;">🏪</span>
+        <select id="headerMerchantSelector" onchange="onMerchantSwitch(this.value)" style="font-size:0.75rem; font-weight:700; background:transparent; border:none; color:var(--text-main); cursor:pointer; outline:none; max-width:140px;">
+          <option value="00000000-0000-0000-0000-000000000001">Default Store</option>
+        </select>
+        <button type="button" class="btn btn-secondary" onclick="openNewMerchantModal()" style="padding:0.15rem 0.45rem; font-size:0.7rem; border-radius:9999px;" title="Create/Onboard New Merchant">+ New</button>
+      </div>
+
       <!-- Active VPA Display -->
       <span class="badge badge-info" id="accountVpaDisplay" style="cursor:pointer;"
         onclick="switchSection('storeSettings', 'subTabVpa')">
@@ -1554,6 +1563,39 @@
 
             <!-- LEFT COLUMN: CONTROLS & SETTINGS -->
             <div>
+              <!-- SECTION 0: MERCHANT CREDENTIALS & INTEGRATION KEYS -->
+              <div class="settings-group-box" style="border:1.5px solid var(--accent); background:rgba(37,99,235,0.03);">
+                <div class="group-box-title" style="display:flex; justify-content:space-between; align-items:center;">
+                  <span>🔑 Merchant ID &amp; API Integration Keys</span>
+                  <button type="button" class="btn btn-primary" onclick="openNewMerchantModal()" style="font-size:0.75rem; padding:0.25rem 0.65rem;">+ New Merchant</button>
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1rem;">
+                  <div>
+                    <label style="display:block; font-size:0.82rem; font-weight:700; margin-bottom:0.35rem;">Active Merchant ID (UUID)</label>
+                    <div style="display:flex; gap:0.4rem;">
+                      <input id="settingDisplayMerchantId" type="text" readonly style="width:100%; font-family:monospace; font-size:0.8rem; background:var(--bg-main);" />
+                      <button type="button" class="btn btn-secondary" onclick="copyMerchantId()" style="padding:0.3rem 0.6rem; font-size:0.75rem;" title="Copy Merchant ID">📋</button>
+                    </div>
+                  </div>
+                  <div>
+                    <label style="display:block; font-size:0.82rem; font-weight:700; margin-bottom:0.35rem;">Publishable Key (data-youpi-key)</label>
+                    <div style="display:flex; gap:0.4rem;">
+                      <input id="settingDisplayApiKey" type="text" readonly style="width:100%; font-family:monospace; font-size:0.8rem; background:var(--bg-main);" placeholder="Click Rotate to generate" />
+                      <button type="button" class="btn btn-secondary" onclick="copyMerchantApiKey()" style="padding:0.3rem 0.6rem; font-size:0.75rem;" title="Copy API Key">📋</button>
+                      <button type="button" class="btn btn-secondary" onclick="rotateMerchantApiKey()" style="padding:0.3rem 0.6rem; font-size:0.75rem;" title="Rotate / Generate New Key">🔄</button>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <label style="display:block; font-size:0.82rem; font-weight:700; margin-bottom:0.35rem;">Universal 1-Script Integration Snippet</label>
+                  <div style="display:flex; gap:0.4rem;">
+                    <input id="settingIntegrationSnippet" type="text" readonly style="width:100%; font-family:monospace; font-size:0.75rem; background:var(--bg-main); color:var(--text-muted);" />
+                    <button type="button" class="btn btn-secondary" onclick="copyIntegrationSnippet()" style="padding:0.3rem 0.65rem; font-size:0.75rem;">📋 Copy</button>
+                  </div>
+                  <span style="font-size:0.72rem; color:var(--text-muted); display:block; margin-top:0.25rem;">Paste this script tag into your storefront HTML &lt;head&gt; or &lt;body&gt; to connect YouPI checkout.</span>
+                </div>
+              </div>
+
               <!-- SECTION 1: CORE BRAND IDENTITY -->
               <div class="settings-group-box">
                 <div class="group-box-title">
@@ -3587,6 +3629,50 @@
     </div>
   </div>
 
+  <!-- Modal: Create / Onboard New Merchant -->
+  <div id="newMerchantModal" class="modal-overlay" hidden>
+    <div class="modal-box" style="max-width:540px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; border-bottom:1px solid #1e293b; padding-bottom:0.75rem;">
+        <h3 style="color:#fff; margin:0; font-size:1.15rem;">🏪 Onboard New Merchant / Store</h3>
+        <button class="btn btn-secondary" style="padding:0.25rem 0.5rem;" onclick="closeNewMerchantModal()">✕</button>
+      </div>
+      <div style="font-size:0.85rem; color:#cbd5e1; line-height:1.6;">
+        <div style="margin-bottom:1rem;">
+          <label style="display:block; font-size:0.82rem; font-weight:700; color:#e2e8f0; margin-bottom:0.35rem;">Store / Business Name *</label>
+          <input id="modalMerchantName" type="text" placeholder="e.g. Acme Supermart or Apex Retail" style="width:100%; background:#020617; border:1px solid #334155; color:#f8fafc; border-radius:6px; padding:0.55rem; font-size:0.85rem;" oninput="syncModalSlug(this.value)" />
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem; margin-bottom:1rem;">
+          <div>
+            <label style="display:block; font-size:0.82rem; font-weight:700; color:#e2e8f0; margin-bottom:0.35rem;">Merchant Slug</label>
+            <input id="modalMerchantSlug" type="text" placeholder="acme-supermart" style="width:100%; background:#020617; border:1px solid #334155; color:#f8fafc; border-radius:6px; padding:0.55rem; font-size:0.85rem;" />
+          </div>
+          <div>
+            <label style="display:block; font-size:0.82rem; font-weight:700; color:#e2e8f0; margin-bottom:0.35rem;">UPI ID / VPA</label>
+            <input id="modalMerchantVpa" type="text" placeholder="e.g. acme@okhdfcbank" style="width:100%; background:#020617; border:1px solid #334155; color:#f8fafc; border-radius:6px; padding:0.55rem; font-size:0.85rem;" />
+          </div>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem; margin-bottom:1rem;">
+          <div>
+            <label style="display:block; font-size:0.82rem; font-weight:700; color:#e2e8f0; margin-bottom:0.35rem;">Contact Email</label>
+            <input id="modalMerchantEmail" type="email" placeholder="contact@acme.com" style="width:100%; background:#020617; border:1px solid #334155; color:#f8fafc; border-radius:6px; padding:0.55rem; font-size:0.85rem;" />
+          </div>
+          <div>
+            <label style="display:block; font-size:0.82rem; font-weight:700; color:#e2e8f0; margin-bottom:0.35rem;">Contact Phone</label>
+            <input id="modalMerchantPhone" type="tel" placeholder="9876543210" style="width:100%; background:#020617; border:1px solid #334155; color:#f8fafc; border-radius:6px; padding:0.55rem; font-size:0.85rem;" />
+          </div>
+        </div>
+        <div style="margin-bottom:1.25rem;">
+          <label style="display:block; font-size:0.82rem; font-weight:700; color:#e2e8f0; margin-bottom:0.35rem;">Webhook Notification URL (Optional)</label>
+          <input id="modalMerchantWebhook" type="url" placeholder="https://acme.com/api/webhook" style="width:100%; background:#020617; border:1px solid #334155; color:#f8fafc; border-radius:6px; padding:0.55rem; font-size:0.85rem;" />
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:0.75rem; border-top:1px solid #1e293b; padding-top:1rem;">
+          <button type="button" class="btn btn-secondary" onclick="closeNewMerchantModal()">Cancel</button>
+          <button type="button" class="btn btn-primary" onclick="submitNewMerchant()">Create Merchant</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Global Cashier Floating Dock -->
   <div id="cashierFloatingDock" class="cashier-floating-dock"></div>
 
@@ -4784,7 +4870,7 @@
           renderActiveVpaCallout(upiData);
         }
 
-        const mRes = await fetch(`${API_BASE}/api/v1/admin/merchant-settings`);
+        const mRes = await fetch(`${API_BASE}/api/v1/admin/merchant-settings?merchantId=${encodeURIComponent(currentMerchantId)}`);
         if (mRes.ok) {
           const mData = await mRes.json();
           currentMerchantId = mData.merchantId || currentMerchantId || '00000000-0000-0000-0000-000000000001';
@@ -4804,6 +4890,7 @@
           setVal('settingBusinessName', mData.businessName);
           setVal('settingWebhookUrl', mData.webhookUrl);
           setVal('settingWebhookSecret', mData.webhookSecret);
+          renderMerchantCredentials(mData);
 
           setVal('settingAppName', branding.appName || 'YOUPI PG');
           setVal('settingLogoUrl', branding.logoUrl);
@@ -7541,6 +7628,174 @@
       }
     }
 
+    // --- MERCHANT MANAGEMENT & CREDENTIALS ---
+    let merchantsList = [];
+
+    async function fetchMerchantsList() {
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/admin/merchants`);
+        if (!res.ok) return;
+        const data = await res.json();
+        merchantsList = data.merchants || [];
+        renderMerchantSelector();
+      } catch (err) {
+        console.warn('[Admin] Failed to fetch merchants list:', err);
+      }
+    }
+
+    function renderMerchantSelector() {
+      const sel = document.getElementById('headerMerchantSelector');
+      if (!sel) return;
+      if (merchantsList.length === 0) {
+        sel.innerHTML = `<option value="${escapeHtml(currentMerchantId)}">Default Store</option>`;
+        return;
+      }
+      sel.innerHTML = merchantsList.map(m => `
+        <option value="${escapeHtml(m.id)}" ${m.id === currentMerchantId ? 'selected' : ''}>
+          ${escapeHtml(m.businessName || 'Store')} (${escapeHtml(m.id.substring(0, 8))}...)
+        </option>
+      `).join('');
+    }
+
+    async function onMerchantSwitch(merchantId) {
+      if (!merchantId || merchantId === currentMerchantId) return;
+      currentMerchantId = merchantId;
+      showAdminToast(`Switched store context.`, true);
+      await loadMerchantSettings();
+      renderMerchantCredentials();
+    }
+
+    function renderMerchantCredentials(mData = null) {
+      const idEl = document.getElementById('settingDisplayMerchantId');
+      const keyEl = document.getElementById('settingDisplayApiKey');
+      const snippetEl = document.getElementById('settingIntegrationSnippet');
+      if (idEl) idEl.value = currentMerchantId || '';
+
+      const currentM = merchantsList.find(m => m.id === currentMerchantId);
+      const host = window.location.origin;
+      const snippet = `<script src="${host}/youpi.js" data-youpi-key="${currentMerchantId}"></script>`;
+      if (snippetEl) snippetEl.value = snippet;
+
+      if (keyEl) {
+        if (mData && mData.apiKey) {
+          keyEl.value = mData.apiKey;
+        } else if (currentM && currentM.apiKeyConfigured) {
+          keyEl.value = 'yp_live_••••••••••••••••';
+        } else {
+          keyEl.value = currentMerchantId;
+        }
+      }
+    }
+
+    function openNewMerchantModal() {
+      const modal = document.getElementById('newMerchantModal');
+      if (modal) modal.hidden = false;
+      const nameInp = document.getElementById('modalMerchantName');
+      if (nameInp) { nameInp.value = ''; nameInp.focus(); }
+      const slugInp = document.getElementById('modalMerchantSlug');
+      if (slugInp) slugInp.value = '';
+      const vpaInp = document.getElementById('modalMerchantVpa');
+      if (vpaInp) vpaInp.value = '';
+      const emailInp = document.getElementById('modalMerchantEmail');
+      if (emailInp) emailInp.value = '';
+      const phoneInp = document.getElementById('modalMerchantPhone');
+      if (phoneInp) phoneInp.value = '';
+      const hookInp = document.getElementById('modalMerchantWebhook');
+      if (hookInp) hookInp.value = '';
+    }
+
+    function closeNewMerchantModal() {
+      const modal = document.getElementById('newMerchantModal');
+      if (modal) modal.hidden = true;
+    }
+
+    function syncModalSlug(val) {
+      const slugInp = document.getElementById('modalMerchantSlug');
+      if (slugInp && !slugInp.dataset.manual) {
+        slugInp.value = String(val || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      }
+    }
+
+    async function submitNewMerchant() {
+      const name = document.getElementById('modalMerchantName')?.value?.trim();
+      if (!name) {
+        showAdminToast('Store / Business Name is required.', false);
+        return;
+      }
+      const slug = document.getElementById('modalMerchantSlug')?.value?.trim() || undefined;
+      const vpa = document.getElementById('modalMerchantVpa')?.value?.trim() || undefined;
+      const contactEmail = document.getElementById('modalMerchantEmail')?.value?.trim() || '';
+      const contactPhone = document.getElementById('modalMerchantPhone')?.value?.trim() || '';
+      const webhookUrl = document.getElementById('modalMerchantWebhook')?.value?.trim() || undefined;
+
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/admin/merchants`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ businessName: name, slug, vpa, contactEmail, contactPhone, webhookUrl })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          showAdminToast(data.error || 'Failed to create merchant.', false);
+          return;
+        }
+
+        closeNewMerchantModal();
+        showAdminToast(`Merchant '${name}' onboarded successfully!`, true);
+        await fetchMerchantsList();
+        currentMerchantId = data.merchant.id;
+        renderMerchantSelector();
+        await loadMerchantSettings();
+        renderMerchantCredentials(data.merchant);
+      } catch (err) {
+        showAdminToast(`Network error: ${err.message}`, false);
+      }
+    }
+
+    async function rotateMerchantApiKey() {
+      if (!confirm('Are you sure you want to rotate this merchant API key? Existing integrations using the old key will need to be updated.')) return;
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/admin/merchants/${encodeURIComponent(currentMerchantId)}/rotate-key`, {
+          method: 'POST'
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          showAdminToast(data.error || 'Failed to rotate key.', false);
+          return;
+        }
+        showAdminToast('API key rotated successfully!', true);
+        renderMerchantCredentials(data);
+        await fetchMerchantsList();
+      } catch (err) {
+        showAdminToast(`Error rotating key: ${err.message}`, false);
+      }
+    }
+
+    function copyMerchantId() {
+      const val = document.getElementById('settingDisplayMerchantId')?.value || currentMerchantId;
+      navigator.clipboard?.writeText(val);
+      showAdminToast('Merchant ID copied to clipboard!', true);
+    }
+
+    function copyMerchantApiKey() {
+      const val = document.getElementById('settingDisplayApiKey')?.value;
+      if (!val || val.includes('•')) {
+        navigator.clipboard?.writeText(currentMerchantId);
+        showAdminToast('Merchant ID copied as public key!', true);
+      } else {
+        navigator.clipboard?.writeText(val);
+        showAdminToast('API key copied to clipboard!', true);
+      }
+    }
+
+    function copyIntegrationSnippet() {
+      const val = document.getElementById('settingIntegrationSnippet')?.value;
+      if (val) {
+        navigator.clipboard?.writeText(val);
+        showAdminToast('Script snippet copied to clipboard!', true);
+      }
+    }
+
     // --- INITIALIZATION ---
     const validSections = ['operations', 'storeSettings', 'developerHub', 'security'];
     const hashSec = (window.location.hash || '').replace('#', '').trim();
@@ -7555,6 +7810,7 @@
       }
     });
 
+    fetchMerchantsList();
     fetchGatewaySettings();
     fetchObserversStatus();
     fetchWhatsAppStatus();

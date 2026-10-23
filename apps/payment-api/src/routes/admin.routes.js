@@ -821,6 +821,104 @@ export function registerAdminRoutes(server, ctx) {
     });
   });
 
+  // GET /api/v1/admin/merchants (List all registered merchants)
+  server.get('/api/v1/admin/merchants', async (req, res) => {
+    const merchants = ctx.merchantRepo.findAll();
+    const list = merchants.map(m => ({
+      id: m.id,
+      businessName: m.businessName,
+      slug: m.slug,
+      contactEmail: m.contactEmail,
+      contactPhone: m.contactPhone,
+      webhookUrl: m.webhookUrl,
+      apiKeyConfigured: Boolean(m.apiKeyHash),
+      createdAt: m.createdAt,
+      updatedAt: m.updatedAt
+    }));
+    HttpServer.json(res, 200, { merchants: list });
+  });
+
+  // POST /api/v1/admin/merchants (Create/Onboard a new merchant)
+  server.post('/api/v1/admin/merchants', async (req, res) => {
+    const body = await HttpServer.parseBody(req);
+    if (!body.businessName || !body.businessName.trim()) {
+      HttpServer.json(res, 400, { error: 'businessName is required' });
+      return;
+    }
+    const businessName = body.businessName.trim();
+    const slugCandidate = body.slug?.trim() || businessName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const slug = slugCandidate || `merchant-${crypto.randomBytes(4).toString('hex')}`;
+
+    const existing = ctx.merchantRepo.findBySlug(slug);
+    if (existing) {
+      HttpServer.json(res, 409, { error: `Merchant with slug '${slug}' already exists` });
+      return;
+    }
+
+    if (body.webhookUrl) {
+      const check = validateOutboundWebhookUrl(body.webhookUrl);
+      if (!check.valid) {
+        HttpServer.json(res, 400, { error: check.error });
+        return;
+      }
+    }
+
+    const rawApiKey = body.apiKey?.trim() || `yp_live_${crypto.randomBytes(16).toString('hex')}`;
+    const rawWebhookSecret = body.webhookSecret?.trim() || crypto.randomBytes(32).toString('hex');
+
+    const merchant = ctx.merchantRepo.create({
+      businessName,
+      slug,
+      contactEmail: body.contactEmail?.trim() || '',
+      contactPhone: body.contactPhone?.trim() || '',
+      webhookUrl: body.webhookUrl?.trim() || null,
+      webhookSecret: rawWebhookSecret,
+      apiKey: rawApiKey
+    });
+
+    if (body.upiId || body.vpa) {
+      const upiCandidate = String(body.upiId || body.vpa).trim();
+      if (isValidVpa(upiCandidate)) {
+        ctx.accountRepo.create({
+          merchantId: merchant.id,
+          upiId: upiCandidate,
+          payeeName: businessName,
+          isActive: true
+        });
+      }
+    }
+
+    HttpServer.json(res, 201, {
+      merchant: {
+        id: merchant.id,
+        businessName: merchant.businessName,
+        slug: merchant.slug,
+        contactEmail: merchant.contactEmail,
+        contactPhone: merchant.contactPhone,
+        webhookUrl: merchant.webhookUrl,
+        apiKey: rawApiKey,
+        webhookSecret: rawWebhookSecret,
+        createdAt: merchant.createdAt
+      }
+    });
+  });
+
+  // POST /api/v1/admin/merchants/:id/rotate-key (Rotate API key for a merchant)
+  server.post('/api/v1/admin/merchants/:id/rotate-key', async (req, res, params) => {
+    const merchant = ctx.merchantRepo.findById(params.id);
+    if (!merchant) {
+      HttpServer.json(res, 404, { error: 'Merchant not found' });
+      return;
+    }
+    const newApiKey = `yp_live_${crypto.randomBytes(16).toString('hex')}`;
+    ctx.merchantRepo.update(merchant.id, { apiKey: newApiKey });
+    HttpServer.json(res, 200, {
+      merchantId: merchant.id,
+      apiKey: newApiKey,
+      message: 'Merchant API key successfully rotated'
+    });
+  });
+
   // GET /api/v1/admin/merchant-settings
   server.get('/api/v1/admin/merchant-settings', async (req, res) => {
     let merchant = req.query.merchantId ? ctx.merchantRepo.findById(req.query.merchantId) : (req.headers['x-merchant-id'] ? ctx.merchantRepo.findById(req.headers['x-merchant-id']) : null);
@@ -867,6 +965,8 @@ export function registerAdminRoutes(server, ctx) {
       contactPhone: merchant.contactPhone,
       webhookUrl: merchant.webhookUrl,
       webhookSecret: merchant.webhookSecret,
+      slug: merchant.slug,
+      apiKeyConfigured: Boolean(merchant.apiKeyHash),
       supportEmails,
       supportMobiles,
       privacyPolicyUrl,
