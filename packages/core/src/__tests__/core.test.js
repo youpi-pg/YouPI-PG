@@ -31,6 +31,13 @@ describe('@youpi/core Unit & Integration Tests', () => {
       assert.equal(isValidTransition(PaymentStatus.INITIATED, PaymentStatus.ACTIVE), true);
       assert.equal(isValidTransition(PaymentStatus.ACTIVE, PaymentStatus.PROCESSING), true);
       assert.equal(isValidTransition(PaymentStatus.PROCESSING, PaymentStatus.SUCCESS), true);
+      assert.equal(isValidTransition(PaymentStatus.ACTIVE, PaymentStatus.OBSERVED_SUCCESS), true);
+      assert.equal(isValidTransition(PaymentStatus.PROCESSING, PaymentStatus.OBSERVED_SUCCESS), true);
+      assert.equal(isValidTransition(PaymentStatus.OBSERVED_SUCCESS, PaymentStatus.RECONCILED), true);
+      assert.equal(isValidTransition(PaymentStatus.MANUAL_REVIEW, PaymentStatus.RECONCILED), true);
+      assert.equal(isValidTransition(PaymentStatus.ACTIVE, PaymentStatus.RECONCILED), false);
+      assert.equal(isValidTransition(PaymentStatus.OBSERVED_SUCCESS, PaymentStatus.SUCCESS), false);
+      assert.equal(isValidTransition(PaymentStatus.RECONCILED, PaymentStatus.OBSERVED_SUCCESS), false);
       assert.equal(isValidTransition(PaymentStatus.PROCESSING, PaymentStatus.FAILED), true);
       assert.equal(isValidTransition(PaymentStatus.ACTIVE, PaymentStatus.EXPIRED), true);
       assert.equal(isValidTransition(PaymentStatus.ACTIVE, PaymentStatus.CANCELLED), true);
@@ -55,6 +62,9 @@ describe('@youpi/core Unit & Integration Tests', () => {
 
     test('maps internal terminal states to public contract outcomes', () => {
       assert.equal(toPublicOutcome(PaymentStatus.SUCCESS), PublicPaymentOutcome.SUCCESS);
+      assert.equal(toPublicOutcome(PaymentStatus.OBSERVED_SUCCESS), PublicPaymentOutcome.OBSERVED_SUCCESS);
+      assert.equal(toPublicOutcome(PaymentStatus.RECONCILED), PublicPaymentOutcome.RECONCILED);
+      assert.equal(toPublicOutcome(PaymentStatus.MANUAL_REVIEW), PublicPaymentOutcome.MANUAL_REVIEW);
       assert.equal(toPublicOutcome(PaymentStatus.FAILED), PublicPaymentOutcome.FAILED);
       assert.equal(toPublicOutcome(PaymentStatus.EXPIRED), PublicPaymentOutcome.EXPIRED);
       assert.equal(toPublicOutcome(PaymentStatus.CANCELLED), PublicPaymentOutcome.CANCELLED);
@@ -173,16 +183,16 @@ describe('@youpi/core Unit & Integration Tests', () => {
 
       const result = attributionEngine.processObservation(normObs);
       assert.equal(result.attributed, true);
-      assert.equal(result.outcomeStatus, PaymentStatus.SUCCESS);
+      assert.equal(result.outcomeStatus, PaymentStatus.OBSERVED_SUCCESS);
       assert.equal(result.paymentSessionId, session.id);
 
       // Verify session updated to SUCCESS in DB
       const updatedSession = sessionRepo.findById(session.id);
-      assert.equal(updatedSession.status, PaymentStatus.SUCCESS);
+      assert.equal(updatedSession.status, PaymentStatus.OBSERVED_SUCCESS);
       assert.ok(updatedSession.completedAt);
 
       // Verify event was emitted
-      assert.ok(emittedEvents.some(e => e.event === 'PAYMENT.SUCCESS'));
+      assert.ok(emittedEvents.some(e => e.event === 'PAYMENT.OBSERVED_SUCCESS'));
     });
 
     test('deduplicates multi-channel observations (SMS + Gmail)', () => {
@@ -205,7 +215,7 @@ describe('@youpi/core Unit & Integration Tests', () => {
       });
       const res1 = attributionEngine.processObservation(obsSms);
       assert.equal(res1.attributed, true);
-      assert.equal(res1.outcomeStatus, PaymentStatus.SUCCESS);
+      assert.equal(res1.outcomeStatus, PaymentStatus.OBSERVED_SUCCESS);
       assert.equal(res1.verificationLevel, 1);
 
       // Method 2: Gmail observes same payment from independent channel -> Upgrades to Level 2 (L2 Dual Verification)
@@ -227,7 +237,7 @@ describe('@youpi/core Unit & Integration Tests', () => {
       assert.equal(resSmsDup.outcomeStatus, ObservationAttributionStatus.DUPLICATE_IGNORED);
 
       // Exactly ONE success event was emitted (subsequent multi-channel confirmations were verification upgrades)!
-      const successEvents = emittedEvents.filter(e => e.event === 'PAYMENT.SUCCESS');
+      const successEvents = emittedEvents.filter(e => e.event === 'PAYMENT.OBSERVED_SUCCESS');
       assert.equal(successEvents.length, 1);
       const upgradeEvents = emittedEvents.filter(e => e.event === 'PAYMENT.VERIFICATION_UPGRADED');
       assert.equal(upgradeEvents.length, 1);
@@ -279,23 +289,20 @@ describe('@youpi/core Unit & Integration Tests', () => {
         rawPayload: { text: 'Delayed bank email' }
       });
 
-      // Customer B is in ACTIVE, but has NOT clicked Payment Done (not in PROCESSING).
-      // Even if Customer B were in PROCESSING, late observation check detects expired A!
+      // Customer B is live at the same amount as expired Customer A.
+      // The alert could belong to either session, so it must not be given to B
+      // and B must be held for manual review instead of staying payable.
       const lateRes = attributionEngine.processObservation(lateObs);
 
-      // Observation must NOT be given to Customer B!
       assert.equal(lateRes.attributed, false);
-      assert.equal(lateRes.lateMatch, true);
-      assert.equal(lateRes.paymentSessionId, sessionA.id);
+      assert.equal(lateRes.ambiguous, true);
+      assert.equal(lateRes.outcomeStatus, PaymentStatus.MANUAL_REVIEW);
 
-      // Customer B remains ACTIVE, not falsely completed!
       const checkB = sessionRepo.findById(sessionB.id);
-      assert.equal(checkB.status, PaymentStatus.ACTIVE);
-
-      // A support ticket must be raised for Customer A's late payment
-      const tickets = ticketRepo.findTicketsByCustomer(customerA.id);
-      assert.equal(tickets.length, 1);
-      assert.ok(tickets[0].subject.includes('LATE PAYMENT DETECTED'));
+      assert.equal(checkB.status, PaymentStatus.MANUAL_REVIEW);
+      const checkA = sessionRepo.findById(sessionA.id);
+      assert.equal(checkA.status, PaymentStatus.EXPIRED);
+      assert.equal(emittedEvents.some(e => e.event === 'PAYMENT.OBSERVED_SUCCESS'), false);
     });
   });
 
@@ -442,6 +449,7 @@ describe('Issue #4: Terminal State Invariants and Re-activation Guards', () => {
     test('strictly forbids all transitions out of terminal states in the state machine', () => {
       const terminalStates = [
         PaymentStatus.SUCCESS,
+        PaymentStatus.RECONCILED,
         PaymentStatus.FAILED,
         PaymentStatus.EXPIRED,
         PaymentStatus.CANCELLED
@@ -453,6 +461,9 @@ describe('Issue #4: Terminal State Invariants and Re-activation Guards', () => {
         PaymentStatus.ACTIVE,
         PaymentStatus.PROCESSING,
         PaymentStatus.SUCCESS,
+        PaymentStatus.OBSERVED_SUCCESS,
+        PaymentStatus.RECONCILED,
+        PaymentStatus.MANUAL_REVIEW,
         PaymentStatus.FAILED,
         PaymentStatus.EXPIRED,
         PaymentStatus.CANCELLED
@@ -672,10 +683,10 @@ describe('Issue #4: Terminal State Invariants and Re-activation Guards', () => {
       assert.ok(ticket);
       assert.ok(ticket.subject.includes('[LATE PAYMENT DETECTED]'));
 
-      // Verify PAYMENT.LATE_DETECTED was emitted and not PAYMENT.SUCCESS
+      // Verify PAYMENT.LATE_DETECTED was emitted and not PAYMENT.OBSERVED_SUCCESS
       const lateEvents = emittedEvents.filter(e => e.event === 'PAYMENT.LATE_DETECTED' && e.payload.paymentId === expiredSession.id);
       assert.equal(lateEvents.length, 1);
-      const successEvents = emittedEvents.filter(e => e.event === 'PAYMENT.SUCCESS' && e.payload.paymentId === expiredSession.id);
+      const successEvents = emittedEvents.filter(e => e.event === 'PAYMENT.OBSERVED_SUCCESS' && e.payload.paymentId === expiredSession.id);
       assert.equal(successEvents.length, 0);
     });
   });

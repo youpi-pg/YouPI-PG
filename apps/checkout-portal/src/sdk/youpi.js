@@ -426,6 +426,29 @@
             }
           });
         }, 1500);
+      } else if (event === 'youpi.payment_observed' || event === 'youpi.payment_reconciled' || event === 'youpi.payment_manual_review') {
+        const payload = e.data.data || {};
+        const status = event === 'youpi.payment_reconciled'
+          ? 'RECONCILED'
+          : (event === 'youpi.payment_manual_review' ? 'MANUAL_REVIEW' : 'OBSERVED_SUCCESS');
+        const result = {
+          status,
+          order_id: payload.orderId || this.options.orderId || this.options.order_id,
+          payment_mode: payload.method || 'UPI',
+          amount_received: Number(payload.amount || this.options.amount || 0),
+          utr: payload.bankRef || payload.utr || payload.reference || '',
+          timestamp: payload.completedAt || new Date().toISOString(),
+          metadata: payload.metadata || this.options.metadata || {},
+          settlement_state: payload.settlementState || (status === 'RECONCILED' ? 'RECONCILED' : (status === 'MANUAL_REVIEW' ? 'MANUAL_REVIEW' : 'NOT_RECONCILED')),
+          raw: payload
+        };
+        const domEvent = status === 'RECONCILED'
+          ? 'youpi:payment:success'
+          : (status === 'MANUAL_REVIEW' ? 'youpi:payment:suspicious' : 'youpi:payment:observed');
+        YoupiCheckout._emitEvent(domEvent, result);
+        YoupiCheckout._emitEvent('youpi:payment:result', result);
+        if (typeof this.options.handler === 'function') this.options.handler(result);
+        if (status === 'RECONCILED' && typeof this.options.onSuccess === 'function') this.options.onSuccess(result);
       } else if (event === 'youpi.payment_failed') {
         const payload = e.data.data || e.data || {};
         const result = {

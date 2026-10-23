@@ -38,6 +38,68 @@ export class AttributionEngine {
   }
 
   /**
+   * More than one session could explain this alert. Do not pick one.
+   * Live sessions move to MANUAL_REVIEW. The observation is kept as evidence.
+   */
+  holdAmbiguous(savedObs, sessions, reason) {
+    this.obsRepo.markAmbiguous(savedObs.id);
+    const ids = [];
+    for (const session of sessions) {
+      if (!session?.id) continue;
+      ids.push(session.id);
+      const live = session.status === PaymentStatus.ACTIVE
+        || session.status === PaymentStatus.PROCESSING
+        || session.status === PaymentStatus.OBSERVED_SUCCESS;
+      if (!live) continue;
+      try {
+        this.sessionRepo.transitionToTerminal(session.id, PaymentStatus.MANUAL_REVIEW, { reason });
+        this.eventEmitter.emit('PAYMENT.MANUAL_REVIEW', {
+          paymentId: session.id,
+          orderId: session.orderId || session.order_id,
+          merchantId: session.merchantId || session.merchant_id,
+          observationId: savedObs.id,
+          reason
+        });
+      } catch (err) {
+        if (this.auditRepo) {
+          this.auditRepo.log({
+            merchantId: session.merchantId || session.merchant_id,
+            entityType: 'PAYMENT_SESSION',
+            entityId: session.id,
+            action: 'AMBIGUOUS_MATCH_TRANSITION_FAILED',
+            actorType: 'SYSTEM',
+            details: { reason, error: err.message, observationId: savedObs.id }
+          });
+        }
+      }
+    }
+    if (this.auditRepo && sessions[0]) {
+      this.auditRepo.log({
+        merchantId: sessions[0].merchantId || sessions[0].merchant_id,
+        entityType: 'PAYMENT_OBSERVATION',
+        entityId: savedObs.id,
+        action: 'AMBIGUOUS_MATCH_MANUAL_REVIEW',
+        actorType: 'SYSTEM',
+        details: {
+          reason,
+          observationId: savedObs.id,
+          sessionIds: ids,
+          amountPaise: savedObs.amountPaise?.toString?.() || String(savedObs.amount_paise || '')
+        }
+      });
+    }
+    return {
+      attributed: false,
+      duplicate: false,
+      lateMatch: false,
+      ambiguous: true,
+      observationId: savedObs.id,
+      outcomeStatus: PaymentStatus.MANUAL_REVIEW,
+      reason
+    };
+  }
+
+  /**
    * Processes a normalized canonical observation through the attribution pipeline.
    * @param {ReturnType<typeof import('./normalizer.js').ObservationNormalizer.normalize>} normalizedObs
    * @returns {{
@@ -81,7 +143,12 @@ export class AttributionEngine {
       // Upgrade verification tier to Level 2 (Dual Verification)!
       if (existing.attributedPaymentId) {
         const targetSession = this.sessionRepo.findById(existing.attributedPaymentId);
-        if (targetSession && isTerminalStatus(targetSession.status) && targetSession.status !== PaymentStatus.SUCCESS) {
+        const closedWithoutUpgrade = targetSession
+          && isTerminalStatus(targetSession.status)
+          && targetSession.status !== PaymentStatus.SUCCESS
+          && targetSession.status !== PaymentStatus.OBSERVED_SUCCESS
+          && targetSession.status !== PaymentStatus.RECONCILED;
+        if (closedWithoutUpgrade) {
           const savedObs = this.obsRepo.create(normalizedObs);
           this.obsRepo.markLateUnmatched(savedObs.id);
           if (this.auditRepo) {
@@ -184,7 +251,7 @@ export class AttributionEngine {
         }
 
         if (verifyResult.isFirstSuccess) {
-          this.eventEmitter.emit('PAYMENT.SUCCESS', {
+          this.eventEmitter.emit('PAYMENT.OBSERVED_SUCCESS', {
             paymentId: existing.attributedPaymentId,
             orderId: verifyResult.session.orderId,
             merchantId: verifyResult.session.merchantId,
@@ -209,7 +276,7 @@ export class AttributionEngine {
           lateMatch: false,
           paymentSessionId: existing.attributedPaymentId,
           observationId: savedObs.id,
-          outcomeStatus: PaymentStatus.SUCCESS,
+          outcomeStatus: PaymentStatus.OBSERVED_SUCCESS,
           verificationLevel: verifyResult.level,
           verificationTag: verifyResult.tag,
           verificationSources: verifyResult.sources
@@ -229,30 +296,40 @@ export class AttributionEngine {
       currentSession = this.sessionRepo.findCurrentActiveOrProcessing(normalizedObs.receivingAccountId);
     }
     if (currentSession && currentSession.amountPaise !== normalizedObs.amountPaise) {
-      const matchRow = this.sessionRepo.db.queryOne(`
+      const matchRows = this.sessionRepo.db.query(`
         SELECT * FROM payment_sessions
         WHERE receiving_account_id = ? AND status IN ('ACTIVE', 'PROCESSING') AND amount_paise = ?
-        ORDER BY created_at DESC
-        LIMIT 1
       `, [normalizedObs.receivingAccountId, Number(normalizedObs.amountPaise)]);
-      if (matchRow) {
-        currentSession = this.sessionRepo.mapRow(matchRow);
+      if (matchRows.length > 1) {
+        return this.holdAmbiguous(
+          savedObs,
+          matchRows.map(row => this.sessionRepo.mapRow(row)),
+          'MULTIPLE_LIVE_AMOUNT_MATCHES'
+        );
+      }
+      if (matchRows.length === 1) {
+        currentSession = this.sessionRepo.mapRow(matchRows[0]);
       }
     }
     if (!currentSession) {
       // Fallback: match the amount, but only inside the receiving account the observer
       // reported. Matching "any ACTIVE session on the gateway with this amount" could settle a
       // different merchant's live payment (cross-merchant hijack), so it is intentionally gone.
-      const scopedRow = this.sessionRepo.db.queryOne(`
+      const candidates = this.sessionRepo.db.query(`
         SELECT * FROM payment_sessions
         WHERE receiving_account_id = ?
           AND status IN ('ACTIVE', 'PROCESSING')
           AND amount_paise = ?
-        ORDER BY created_at DESC
-        LIMIT 1
       `, [normalizedObs.receivingAccountId, Number(normalizedObs.amountPaise)]);
-      if (scopedRow) {
-        currentSession = this.sessionRepo.mapRow(scopedRow);
+      if (candidates.length > 1) {
+        return this.holdAmbiguous(
+          savedObs,
+          candidates.map(row => this.sessionRepo.mapRow(row)),
+          'MULTIPLE_LIVE_AMOUNT_MATCHES'
+        );
+      }
+      if (candidates.length === 1) {
+        currentSession = this.sessionRepo.mapRow(candidates[0]);
       }
     }
 
@@ -321,6 +398,10 @@ export class AttributionEngine {
         if (digitsOnly.length >= 10 && /^\d+$/.test(digitsOnly) && !/[a-zA-Z]/.test(senderStr)) {
           isPersonalSms = true;
         }
+      }
+
+      if (isPriorExpiredSession && isEligibleStatus && isAmountMatch) {
+        return this.holdAmbiguous(savedObs, [currentSession], 'LIVE_AND_RECENT_SAME_AMOUNT');
       }
 
       if (isUtrAlreadyUsed) {
@@ -414,7 +495,7 @@ export class AttributionEngine {
             });
           }
 
-          this.eventEmitter.emit('PAYMENT.SUCCESS', {
+          this.eventEmitter.emit('PAYMENT.OBSERVED_SUCCESS', {
             paymentId: currentSession.id,
             orderId: currentSession.orderId,
             merchantId: currentSession.merchantId,
@@ -440,7 +521,7 @@ export class AttributionEngine {
             wasActive,
             paymentSessionId: currentSession.id,
             observationId: savedObs.id,
-            outcomeStatus: PaymentStatus.SUCCESS,
+            outcomeStatus: PaymentStatus.OBSERVED_SUCCESS,
             verificationLevel: 2,
             verificationTag: verifyResult.tag,
             verificationSources: verifyResult.sources
@@ -523,7 +604,7 @@ export class AttributionEngine {
             savedObs.id,
             { finalizeSuccess: true }
           );
-          this.eventEmitter.emit('PAYMENT.SUCCESS', {
+          this.eventEmitter.emit('PAYMENT.OBSERVED_SUCCESS', {
             paymentId: currentSession.id,
             orderId: currentSession.orderId,
             merchantId: currentSession.merchantId,
@@ -541,7 +622,7 @@ export class AttributionEngine {
             wasActive,
             paymentSessionId: currentSession.id,
             observationId: savedObs.id,
-            outcomeStatus: PaymentStatus.SUCCESS,
+            outcomeStatus: PaymentStatus.OBSERVED_SUCCESS,
             verificationLevel: finalResult.level,
             verificationTag: finalResult.tag,
             verificationSources: finalResult.sources
@@ -560,7 +641,12 @@ export class AttributionEngine {
           this.pendingGraceTimers.delete(targetSessionId);
           // Check if session became terminal during the grace window
           const latestSession = this.sessionRepo.findById(targetSessionId);
-          if (!latestSession || (isTerminalStatus(latestSession.status) && latestSession.status !== PaymentStatus.SUCCESS)) {
+          const alreadyObserved = latestSession && (
+            latestSession.status === PaymentStatus.SUCCESS
+            || latestSession.status === PaymentStatus.OBSERVED_SUCCESS
+            || latestSession.status === PaymentStatus.RECONCILED
+          );
+          if (!latestSession || (isTerminalStatus(latestSession.status) && !alreadyObserved)) {
             const sessionStatus = latestSession ? latestSession.status : 'EXPIRED';
             this.obsRepo.markLateUnmatched(targetObsId);
             if (this.auditRepo) {
@@ -601,7 +687,7 @@ export class AttributionEngine {
             return;
           }
 
-          if (latestSession.status === PaymentStatus.SUCCESS) {
+          if (alreadyObserved) {
             return;
           }
 
@@ -629,7 +715,7 @@ export class AttributionEngine {
             });
           }
 
-          this.eventEmitter.emit('PAYMENT.SUCCESS', {
+          this.eventEmitter.emit('PAYMENT.OBSERVED_SUCCESS', {
             paymentId: targetSessionId,
             orderId: targetOrderId,
             merchantId: targetMerchantId,
@@ -664,7 +750,7 @@ export class AttributionEngine {
     const sixtySecsAgo = new Date(Date.now() - 60000).toISOString();
     const recentSuccessSession = this.sessionRepo.db.queryOne(`
       SELECT * FROM payment_sessions
-      WHERE receiving_account_id = ? AND status = 'SUCCESS'
+      WHERE receiving_account_id = ? AND status IN ('SUCCESS', 'OBSERVED_SUCCESS')
         AND amount_paise = ? AND completed_at >= ?
       ORDER BY completed_at DESC LIMIT 1
     `, [normalizedObs.receivingAccountId, Number(normalizedObs.amountPaise), sixtySecsAgo]);
@@ -770,7 +856,7 @@ export class AttributionEngine {
           lateMatch: false,
           paymentSessionId: recentSuccessSession.id,
           observationId: savedObs.id,
-          outcomeStatus: PaymentStatus.SUCCESS,
+          outcomeStatus: PaymentStatus.OBSERVED_SUCCESS,
           verificationLevel: verifyResult.level,
           verificationTag: verifyResult.tag,
           verificationSources: verifyResult.sources
@@ -786,7 +872,11 @@ export class AttributionEngine {
       thirtyMinutesAgo
     );
 
-    const lateMatchedSession = recentExpired.find(s => s.amountPaise === normalizedObs.amountPaise);
+    const lateMatches = recentExpired.filter(s => s.amountPaise === normalizedObs.amountPaise);
+    if (lateMatches.length > 1) {
+      return this.holdAmbiguous(savedObs, lateMatches, 'MULTIPLE_LATE_AMOUNT_MATCHES');
+    }
+    const lateMatchedSession = lateMatches[0];
 
     if (lateMatchedSession) {
       // Mark observation as LATE_UNMATCHED

@@ -94,6 +94,16 @@ export class ObservationRepository {
     return this.findById(id);
   }
 
+  markAmbiguous(id) {
+    this.db.execute(`
+      UPDATE payment_observations
+      SET attribution_status = ?
+      WHERE id = ?
+    `, [ObservationAttributionStatus.AMBIGUOUS, id]);
+
+    return this.findById(id);
+  }
+
   markLateUnmatched(id) {
     this.db.execute(`
       UPDATE payment_observations

@@ -179,7 +179,7 @@ describe('Phase 16: Comprehensive Chaos & Concurrency Verification', () => {
 
     // Multi-channel flood confirms payment at Level 1, then upgrades to Level 2 (Dual Verification)!
     assert.equal(resSms.attributed, true);
-    assert.equal(resSms.outcomeStatus, PaymentStatus.SUCCESS);
+    assert.equal(resSms.outcomeStatus, PaymentStatus.OBSERVED_SUCCESS);
     assert.equal(resSms.verificationLevel, 1);
 
     assert.equal(resGmail.attributed, true);
@@ -193,7 +193,7 @@ describe('Phase 16: Comprehensive Chaos & Concurrency Verification', () => {
 
     // Session transitions to SUCCESS
     const checkDb = sessionRepo.findById(activeSession.id);
-    assert.equal(checkDb.status, PaymentStatus.SUCCESS);
+    assert.equal(checkDb.status, PaymentStatus.OBSERVED_SUCCESS);
   });
 
   test('CHAOS 4: Promotion cascade: completed session immediately unblocks waiting queue in order', () => {
@@ -245,13 +245,13 @@ describe('Phase 16: Comprehensive Chaos & Concurrency Verification', () => {
 
     const lateResult = attributionEngine.processObservation(delayedObs);
 
-    // MUST NOT attribute to Active Customer B!
+    // MUST NOT attribute to Active Customer B. Same amount as a recent expiry is manual review.
     assert.equal(lateResult.attributed, false);
-    assert.equal(lateResult.lateMatch, true);
-    assert.equal(lateResult.paymentSessionId, expiredSession.id);
+    assert.equal(lateResult.ambiguous, true);
+    assert.equal(lateResult.outcomeStatus, PaymentStatus.MANUAL_REVIEW);
 
-    // Customer B must still be ACTIVE
     const checkB = sessionRepo.findById(activeCustomerB.id);
-    assert.equal(checkB.status, PaymentStatus.ACTIVE);
+    assert.equal(checkB.status, PaymentStatus.MANUAL_REVIEW);
+    assert.equal(sessionRepo.findById(expiredSession.id).status, PaymentStatus.EXPIRED);
   });
 });

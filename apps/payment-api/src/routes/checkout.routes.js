@@ -3,6 +3,16 @@ import { toRupeesString, buildUpiUri, PaymentStatus, PaymentMethod, UPI_PROVIDER
 import { validateSessionDeviceAccess, verifyRegisteredDeviceCredentials } from '@youpi/core';
 import { isAdminRequest, isPaymentOwner } from '../auth-guard.js';
 
+const CLOSED_CHECKOUT_STATES = [
+  PaymentStatus.SUCCESS,
+  PaymentStatus.OBSERVED_SUCCESS,
+  PaymentStatus.RECONCILED,
+  PaymentStatus.MANUAL_REVIEW,
+  PaymentStatus.FAILED,
+  PaymentStatus.EXPIRED,
+  PaymentStatus.CANCELLED
+];
+
 /**
  * Validates device access to an active payment session.
  * Enforces:
@@ -11,7 +21,7 @@ import { isAdminRequest, isPaymentOwner } from '../auth-guard.js';
  */
 function checkSessionDeviceAccess(session, req, body = null, ctx = null) {
   // If session is already in a terminal state, allow access so terminal status can be rendered
-  if ([PaymentStatus.SUCCESS, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED, PaymentStatus.SUSPICIOUS].includes(session.status)) {
+  if (CLOSED_CHECKOUT_STATES.includes(session.status)) {
     return { allowed: true, boundDeviceId: session.deviceId, isTerminal: true };
   }
 
@@ -149,19 +159,33 @@ function sanitizePublicBranding(raw = {}) {
  * }} ctx
  */
 /**
- * Determines whether UPI pollers / observers (Android SMS, Google Messages, Gmail) are active.
- * Strict Rule: Healthy (WORKING) ONLY IF:
- * 1. Gmail OAuth is configured AND Gmail observer is actively polling.
- * 2. SMS Gateway is connected (Android app or Google Messages) AND actively polling / reflecting messages.
- * If either is missing, unconfigured, or offline, status is ISSUES with downtime warning.
+ * New UPI sessions require a live SMS observer (Android heartbeat within 5 minutes,
+ * or Google Messages connected). Gmail alone is supporting evidence and is not enough.
+ * The gate is always on outside tests. Tests opt in with YOUPI_ENFORCE_OBSERVER_HEALTH=true.
+ * Recovery: the next create succeeds once a heartbeat is fresh. In-flight sessions are not cancelled.
  */
-async function checkUpiServerHealth(ctx, enabledMethods = [], sellingMode = 'OFFLINE', merchantId = '00000000-0000-0000-0000-000000000001') {
+export function observerHealthEnforced() {
+  if (process.env.YOUPI_ENFORCE_OBSERVER_HEALTH === 'true') return true;
+  if (process.env.NODE_ENV === 'test') return false;
+  return true;
+}
+
+export function upiObserversAcceptingPayments(health) {
+  return health?.smsHealthy === true && health?.isFalseNarrative !== true;
+}
+
+/**
+ * Healthy (WORKING) only when both Gmail and an SMS observer are up.
+ * New UPI payments additionally require smsHealthy. Gmail alone does not accept new sessions.
+ */
+export async function checkUpiServerHealth(ctx, enabledMethods = [], sellingMode = 'OFFLINE', merchantId = '00000000-0000-0000-0000-000000000001') {
   // 0. Check False Narrative Dev Switch (Active for 10 minutes from enabling time)
+  const productionLock = process.env.NODE_ENV === 'production' || process.env.YOUPI_MODE === 'production';
   try {
     const merchant = ctx.merchantRepo?.findById ? ctx.merchantRepo.findById(merchantId) : null;
     const falseNarrativeUntil = merchant?.branding?.falseNarrativeUntil;
     const falseNarrativeMode = (merchant?.branding?.falseNarrativeMode || 'GREEN').toUpperCase();
-    if (falseNarrativeUntil && Number(falseNarrativeUntil) > Date.now()) {
+    if (!productionLock && falseNarrativeUntil && Number(falseNarrativeUntil) > Date.now()) {
       const remainingSeconds = Math.max(0, Math.round((Number(falseNarrativeUntil) - Date.now()) / 1000));
       if (falseNarrativeMode === 'GREEN') {
         return {
@@ -432,7 +456,7 @@ export function registerCheckoutRoutes(server, ctx) {
     }
 
     // Terminal session handling: if session is terminal, return terminal state directly (CASE 4)
-    if ([PaymentStatus.SUCCESS, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED].includes(session.status)) {
+    if ([PaymentStatus.SUCCESS, PaymentStatus.OBSERVED_SUCCESS, PaymentStatus.RECONCILED, PaymentStatus.MANUAL_REVIEW, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED].includes(session.status)) {
       const merchant = ctx.merchantRepo.findById(session.merchantId);
       const branding = sanitizePublicBranding(merchant?.branding || {});
       HttpServer.json(res, 200, {
@@ -909,7 +933,7 @@ export function registerCheckoutRoutes(server, ctx) {
       return;
     }
 
-    if ([PaymentStatus.SUCCESS, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED].includes(session.status)) {
+    if (CLOSED_CHECKOUT_STATES.includes(session.status)) {
       HttpServer.json(res, 400, { error: `Cannot retry payment for terminal session in status '${session.status}'` });
       return;
     }
@@ -1076,7 +1100,7 @@ export function registerCheckoutRoutes(server, ctx) {
       return;
     }
 
-    if ([PaymentStatus.SUCCESS, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED].includes(session.status)) {
+    if (CLOSED_CHECKOUT_STATES.includes(session.status)) {
       HttpServer.json(res, 200, {
         paymentId: session.id,
         status: session.status
@@ -1135,7 +1159,7 @@ export function registerCheckoutRoutes(server, ctx) {
       return;
     }
 
-    if ([PaymentStatus.SUCCESS, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED].includes(session.status)) {
+    if (CLOSED_CHECKOUT_STATES.includes(session.status)) {
       HttpServer.json(res, 400, { error: `Cannot switch payment method for session in status '${session.status}'` });
       return;
     }
@@ -1357,7 +1381,7 @@ export function registerCheckoutRoutes(server, ctx) {
       return;
     }
 
-    if ([PaymentStatus.SUCCESS, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED].includes(session.status)) {
+    if (CLOSED_CHECKOUT_STATES.includes(session.status)) {
       HttpServer.json(res, 400, { error: `Cannot place COD order for terminal session in status '${session.status}'` });
       return;
     }
@@ -1695,13 +1719,18 @@ export function registerCheckoutRoutes(server, ctx) {
     // merchant's order reference, and the unique (merchant_id, order_id) index rejects a
     // second row for an order that already succeeded — which surfaced as a 500. Refuse with a
     // clear conflict instead of attempting the duplicate.
-    const paidSession = [sourceSession, targetSession, session].find(s => s && s.status === PaymentStatus.SUCCESS);
+    const paidSession = [sourceSession, targetSession, session].find(s => s && (
+      s.status === PaymentStatus.SUCCESS
+      || s.status === PaymentStatus.OBSERVED_SUCCESS
+      || s.status === PaymentStatus.RECONCILED
+      || s.status === PaymentStatus.MANUAL_REVIEW
+    ));
     if (paidSession) {
       HttpServer.json(res, 409, {
         error: 'ORDER_ALREADY_PAID',
-        message: 'This order has already been paid and cannot be restarted.',
+        message: 'This order is already closed and cannot be restarted.',
         orderId: paidSession.orderId,
-        status: PaymentStatus.SUCCESS
+        status: paidSession.status
       });
       return;
     }
@@ -1767,11 +1796,7 @@ export function registerCheckoutRoutes(server, ctx) {
     // 1. Identify ALL sessions on old/other devices that must be cancelled (excluding PROCESSING and terminal states)
     const NON_CANCELLABLE_STATES = [
       PaymentStatus.PROCESSING,
-      PaymentStatus.CANCELLED,
-      PaymentStatus.EXPIRED,
-      PaymentStatus.FAILED,
-      PaymentStatus.SUCCESS,
-      PaymentStatus.SUSPICIOUS
+      ...CLOSED_CHECKOUT_STATES
     ];
     const sessionsToTerminate = new Map();
 

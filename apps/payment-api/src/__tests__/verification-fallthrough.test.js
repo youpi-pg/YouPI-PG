@@ -380,7 +380,7 @@ describe('Verification Pipeline & Fall-Through Protection (#22)', () => {
       timingEngine,
       eventEmitter: {
         emit: (event) => {
-          if (event === 'PAYMENT.SUCCESS') successFired = true;
+          if (event === 'PAYMENT.OBSERVED_SUCCESS') successFired = true;
         }
       }
     });
@@ -388,8 +388,8 @@ describe('Verification Pipeline & Fall-Through Protection (#22)', () => {
     const stats = recovery.recover();
     const updated = sessionRepo.findById(session.id);
 
-    assert.equal(updated.status, PaymentStatus.SUCCESS, 'Attributed PROCESSING session must recover to SUCCESS');
-    assert.ok(successFired, 'PAYMENT.SUCCESS event must fire on recovery of attributed session');
+    assert.equal(updated.status, PaymentStatus.OBSERVED_SUCCESS, 'Attributed PROCESSING session must recover to OBSERVED_SUCCESS');
+    assert.ok(successFired, 'PAYMENT.OBSERVED_SUCCESS event must fire on recovery of attributed session');
   });
 
   test('Issue #60: Missing rawText is rejected with HTTP 400 and does not bypass pipeline', async () => {
@@ -541,7 +541,7 @@ describe('Verification Pipeline & Fall-Through Protection (#22)', () => {
     const s1Fresh = sessionRepo.findById(s1.id);
     const s2Fresh = sessionRepo.findById(s2.id);
     const sessionStatuses = [s1Fresh.status, s2Fresh.status].sort();
-    assert.deepEqual(sessionStatuses, [PaymentStatus.ACTIVE, PaymentStatus.SUCCESS]);
+    assert.deepEqual(sessionStatuses, [PaymentStatus.ACTIVE, PaymentStatus.OBSERVED_SUCCESS]);
   });
 });
 

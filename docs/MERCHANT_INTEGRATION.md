@@ -3,11 +3,18 @@
 ## 1. Overview
 The YOUPI PG public contract is designed to be minimal and robust. Merchant systems do not need to understand queue mechanics, five-minute timers, 30-second verification windows, or multi-channel observation.
 
-Merchants interact with only **four public outcomes**:
-- `SUCCESS`: Payment observed and verified.
-- `FAILED`: 30-second verification window elapsed with no matching observation.
-- `EXPIRED`: 5-minute payment window elapsed without customer initiating verification.
-- `CANCELLED`: Customer explicitly cancelled checkout.
+An observer match is not a bank settlement. UPI alerts move a session to `OBSERVED_SUCCESS` with `settlementState: NOT_RECONCILED`. `RECONCILED` is emitted only after an admin imports a bank-statement CSV and one line matches that session on receiving account, amount in paise, and 12-digit reference. There is no bank API and no scheduled pull. Do not fulfill a UPI order on `SUCCESS` or `OBSERVED_SUCCESS`.
+
+Public outcomes:
+- `OBSERVED_SUCCESS`: A bank alert was attributed to this UPI session. Not statement-reconciled.
+- `RECONCILED`: A downloaded statement line matched this UPI session. This is not sent for an observer alert alone.
+- `MANUAL_REVIEW`: More than one session could explain the alert, or the payment was flagged. Do not fulfill.
+- `SUCCESS`: Cash on delivery or a counter payment was placed. This is not a UPI bank settlement (`settlementState: NOT_BANK_SETTLEMENT`).
+- `FAILED`: Verification window elapsed with no matching observation.
+- `EXPIRED`: Payment window elapsed.
+- `CANCELLED`: Customer cancelled checkout.
+
+Breaking change: UPI observer webhooks now send `X-Gateway-Event: OBSERVED_SUCCESS` and `event: "OBSERVED_SUCCESS"`. Older integrations that treated UPI `SUCCESS` as paid must switch. `SUCCESS` remains the COD and counter event.
 
 ---
 
@@ -59,9 +66,19 @@ app.post('/api/payment/webhook', express.raw({ type: 'application/json' }), (req
     const event = client.verifyWebhook(rawBody, signature);
 
     switch (event.event) {
+      case 'OBSERVED_SUCCESS':
+        // Alert matched. Do not fulfill. Wait for RECONCILED.
+        break;
+      case 'RECONCILED':
+        if (event.method === 'UPI' && event.settlementState === 'RECONCILED') {
+          unlockServiceForCustomer(event.orderId, event.metadata);
+        }
+        break;
+      case 'MANUAL_REVIEW':
+        // Hold the order. Do not fulfill.
+        break;
       case 'SUCCESS':
-        // Fulfill customer order
-        unlockServiceForCustomer(event.orderId, event.metadata);
+        // COD or counter order placed. Check event.method before treating it as paid.
         break;
       case 'FAILED':
         // Mark order as failed, notify customer to retry

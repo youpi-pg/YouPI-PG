@@ -267,5 +267,27 @@ CREATE INDEX IF NOT EXISTS idx_security_events_customer ON security_events (cust
 CREATE INDEX IF NOT EXISTS idx_security_events_session ON security_events (payment_session_id);
 CREATE INDEX IF NOT EXISTS idx_security_events_type ON security_events (event_type);
 
+-- 11. Bank statement lines imported by an operator. Observers do not write this table.
+CREATE TABLE IF NOT EXISTS bank_statement_lines (
+    id TEXT PRIMARY KEY,
+    receiving_account_id TEXT NOT NULL REFERENCES payment_receiving_accounts(id) ON DELETE CASCADE,
+    source_hash TEXT NOT NULL,
+    booked_on TEXT NOT NULL,
+    amount_paise INTEGER NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'INR',
+    direction TEXT NOT NULL,
+    utr TEXT,
+    narration TEXT NOT NULL DEFAULT '',
+    match_status TEXT NOT NULL,
+    match_reason TEXT,
+    payment_session_id TEXT REFERENCES payment_sessions(id),
+    imported_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_statement_lines_source
+  ON bank_statement_lines (receiving_account_id, source_hash);
+CREATE INDEX IF NOT EXISTS idx_statement_lines_utr
+  ON bank_statement_lines (receiving_account_id, utr);
+
 
 

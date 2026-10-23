@@ -113,7 +113,7 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
     assert.ok(checkoutRes.body.checkoutUrl.includes('/checkout/'));
   });
 
-  test('POST /api/webhook processes signed SUCCESS event and credits wallet coins', async () => {
+  test('POST /api/webhook credits coins only on a signed RECONCILED event', async () => {
     const initialCoins = storeInstance.server.walletCoins;
 
     storeInstance.server.orders.set('COIN-ORD-555', {
@@ -126,8 +126,27 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
     });
     storeInstance.server.orderPayments.set('COIN-ORD-555', 'pay_coin_test_123');
 
+    const observed = JSON.stringify({
+      event: 'OBSERVED_SUCCESS',
+      paymentId: 'pay_coin_test_123',
+      orderId: 'COIN-ORD-555',
+      amount: '449.00',
+      amountPaise: 44900,
+      currency: 'INR',
+      method: 'UPI'
+    });
+    const observedRes = await request('/api/webhook', {
+      method: 'POST',
+      headers: gatewayHeaders(observed),
+      body: observed
+    });
+    assert.equal(observedRes.status, 200);
+    assert.equal(observedRes.body.credited, false);
+    assert.equal(observedRes.body.settlementState, 'NOT_RECONCILED');
+    assert.equal(storeInstance.server.walletCoins, initialCoins);
+
     const payloadObj = {
-      event: 'SUCCESS',
+      event: 'RECONCILED',
       paymentId: 'pay_coin_test_123',
       orderId: 'COIN-ORD-555',
       amount: '449.00',
@@ -166,7 +185,7 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
 
     // 1. Unknown orderId rejected with 404
     const unknownPayload = JSON.stringify({
-      event: 'SUCCESS',
+      event: 'RECONCILED',
       paymentId: 'pay_unknown_999',
       orderId: 'COIN-ORD-UNKNOWN-999',
       amount: '1.00',
@@ -192,7 +211,7 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
     const { orderId, paymentId } = checkout.body;
 
     const mismatchPayload = JSON.stringify({
-      event: 'SUCCESS',
+      event: 'RECONCILED',
       paymentId,
       orderId,
       amount: '1.00',
@@ -211,7 +230,7 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
 
     // 3. Matching amountPaise credits local order.coins (10), ignoring inflated metadata.coins (99999)
     const validPayload = JSON.stringify({
-      event: 'SUCCESS',
+      event: 'RECONCILED',
       paymentId,
       orderId,
       amount: '10.00',
@@ -271,7 +290,7 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
 
     // Simulate signed webhook receipt
     const payloadObj = {
-      event: 'SUCCESS',
+      event: 'RECONCILED',
       paymentId: checkoutRes.body.paymentId,
       orderId,
       amount: '250.00',
@@ -313,7 +332,7 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
     const orderId = checkoutRes.body.orderId;
 
     const payloadObj = {
-      event: 'SUCCESS',
+      event: 'RECONCILED',
       paymentId: checkoutRes.body.paymentId,
       orderId,
       amount: '1.00',
@@ -376,28 +395,26 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
     assert.equal(storeInstance.server.walletCoins, before);
   });
 
-  test('POST /api/verify-payment credits coins only after the gateway reports SUCCESS, and is idempotent', async () => {
+  test('POST /api/verify-payment never grants coins from a browser callback', async () => {
     const initialCoins = storeInstance.server.walletCoins;
     const checkout = await request('/api/checkout', { method: 'POST', body: { price: 100, coins: 100, packName: 'Starter Pack' } });
     assert.equal(checkout.status, 200);
     const { orderId, paymentId } = checkout.body;
 
-    // Simulate the gateway verification engine completing this UPI payment.
     testDb.execute("UPDATE payment_sessions SET status = 'SUCCESS', method = 'UPI' WHERE id = ?", [paymentId]);
-
-    const verifyRes = await request('/api/verify-payment', {
+    const successRes = await request('/api/verify-payment', {
       method: 'POST',
       body: { orderId, coins: 999999, packName: 'Ignored' }
     });
-    assert.equal(verifyRes.status, 200);
-    assert.equal(verifyRes.body.success, true);
-    // Client-supplied coin counts are ignored: the gateway session metadata wins.
-    assert.equal(storeInstance.server.walletCoins, initialCoins + 100);
+    assert.equal(successRes.status, 202);
+    assert.equal(successRes.body.credited, false);
+    assert.equal(storeInstance.server.walletCoins, initialCoins);
 
-    const dupRes = await request('/api/verify-payment', { method: 'POST', body: { orderId } });
-    assert.equal(dupRes.status, 200);
-    assert.equal(dupRes.body.message, 'Already credited');
-    assert.equal(storeInstance.server.walletCoins, initialCoins + 100);
+    testDb.execute("UPDATE payment_sessions SET status = 'RECONCILED', method = 'UPI' WHERE id = ?", [paymentId]);
+    const reconciledRes = await request('/api/verify-payment', { method: 'POST', body: { orderId } });
+    assert.equal(reconciledRes.status, 202);
+    assert.equal(reconciledRes.body.credited, false);
+    assert.equal(storeInstance.server.walletCoins, initialCoins);
   });
 
   test('GET /order-success renders verified payment page with parameters', async () => {

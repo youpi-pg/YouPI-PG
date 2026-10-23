@@ -211,7 +211,7 @@ describe('2-Level Verification (SMS Gateway + Gmail) & Queue Management Tests', 
 
     // Verify session in DB is now SUCCESS and Level 2
     const sUpdated = sessionRepo.findById(s450.id);
-    assert.equal(sUpdated.status, PaymentStatus.SUCCESS);
+    assert.equal(sUpdated.status, PaymentStatus.OBSERVED_SUCCESS);
     assert.equal(sUpdated.verificationLevel, 2);
   });
 

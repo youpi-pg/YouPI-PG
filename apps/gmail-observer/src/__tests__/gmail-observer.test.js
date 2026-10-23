@@ -145,7 +145,7 @@ describe('Gmail Payment Observer Integration Tests', () => {
 
       // Verify session updated to SUCCESS in DB
       const updated = apiInstance.app.context.sessionRepo.findById(session.id);
-      assert.equal(updated.status, PaymentStatus.SUCCESS);
+      assert.equal(updated.status, PaymentStatus.OBSERVED_SUCCESS);
     });
   });
 });

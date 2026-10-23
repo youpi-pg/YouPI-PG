@@ -203,7 +203,7 @@ export class TimingEngine {
     const session = this.sessionRepo.findById(sessionId);
     if (!session) return null;
 
-    if ([PaymentStatus.PROCESSING, PaymentStatus.SUCCESS, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED, PaymentStatus.SUSPICIOUS].includes(session.status)) {
+    if ([PaymentStatus.PROCESSING, PaymentStatus.SUCCESS, PaymentStatus.OBSERVED_SUCCESS, PaymentStatus.RECONCILED, PaymentStatus.MANUAL_REVIEW, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED].includes(session.status)) {
       return session; // cannot cancel in-flight PROCESSING or already terminal sessions
     }
 

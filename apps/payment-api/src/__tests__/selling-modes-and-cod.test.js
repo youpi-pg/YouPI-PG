@@ -337,7 +337,7 @@ describe('Architectural Update: Selling Modes (Online vs Offline), COD Flow, & C
     await new Promise(r => setTimeout(r, 6500));
 
     const state = await request(`/api/v1/payments/${paymentId}`, { headers: { 'X-Merchant-Key': merchantSecret } });
-    assert.equal(state.body.status, 'SUCCESS');
+    assert.equal(state.body.status, 'OBSERVED_SUCCESS');
 
     // Restarting a paid order must fail cleanly. It reuses the merchant's order reference,
     // and the unique (merchant_id, order_id) index would otherwise reject the duplicate row

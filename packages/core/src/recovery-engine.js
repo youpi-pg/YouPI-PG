@@ -49,17 +49,17 @@ export class RecoveryEngine {
 
     for (const row of overdueProcessing) {
       if (row.verification_level >= 1 || row.attributed_observation_id) {
-        this.sessionRepo.transitionToTerminal(row.id, PaymentStatus.SUCCESS);
+        this.sessionRepo.transitionToTerminal(row.id, PaymentStatus.OBSERVED_SUCCESS);
         if (this.auditRepo) {
           this.auditRepo.log({
             entityType: 'PAYMENT_SESSION',
             entityId: row.id,
-            action: 'CRASH_RECOVERY_ATTRIBUTED_SUCCESS',
+            action: 'CRASH_RECOVERY_ATTRIBUTED_OBSERVED',
             actorType: 'SYSTEM'
           });
         }
         if (this.eventEmitter) {
-          this.eventEmitter.emit('PAYMENT.SUCCESS', {
+          this.eventEmitter.emit('PAYMENT.OBSERVED_SUCCESS', {
             paymentId: row.id,
             orderId: row.order_id,
             merchantId: row.merchant_id

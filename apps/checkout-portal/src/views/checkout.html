@@ -1857,7 +1857,7 @@
       }
 
       // --- 2. TERMINAL PAYMENT STATES (TERMINAL & OVER) ---
-      if (['SUCCESS', 'CANCELLED', 'EXPIRED', 'FAILED'].includes(data.status)) {
+      if (['SUCCESS', 'OBSERVED_SUCCESS', 'RECONCILED', 'MANUAL_REVIEW', 'CANCELLED', 'EXPIRED', 'FAILED'].includes(data.status)) {
         if (queuePollTimer) { clearInterval(queuePollTimer); queuePollTimer = null; }
         if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
         setGatewayAuthMode(false);
@@ -1933,7 +1933,27 @@
           return;
         }
 
-        if (data.status === 'SUCCESS') {
+        if (data.status === 'MANUAL_REVIEW') {
+          closeProcessingModal();
+          closeCancelPaymentModal();
+          const bar = document.getElementById('paymentMethodSelectorBar');
+          if (bar) bar.style.display = 'none';
+          hideAllContent();
+          const failedView = document.getElementById('viewFailedContent');
+          if (failedView) failedView.hidden = false;
+          const footer = document.getElementById('ypgStickyFooter');
+          if (footer) footer.style.display = 'none';
+          const titleEl = document.getElementById('failedTitleText');
+          if (titleEl) titleEl.textContent = 'Payment held for review';
+          const descEl = document.getElementById('failedDescriptionText');
+          if (descEl) descEl.textContent = 'This alert matched more than one payment, or it was flagged. It is not confirmed and no order should be fulfilled yet.';
+          try {
+            postToMerchant({ event: 'youpi.payment_manual_review', data: data });
+          } catch (e) { }
+          return;
+        }
+
+        if (data.status === 'SUCCESS' || data.status === 'OBSERVED_SUCCESS' || data.status === 'RECONCILED') {
           closeProcessingModal();
           closeCancelPaymentModal();
           const bar = document.getElementById('paymentMethodSelectorBar');
@@ -1960,17 +1980,28 @@
               codApiBox.style.display = 'block';
               codApiUrl.textContent = `${API_BASE}/api/v1/orders/${data.orderId}/cod`;
             }
+          } else if (data.status === 'OBSERVED_SUCCESS') {
+            if (titleEl) titleEl.textContent = 'Payment observed';
+            if (descEl) descEl.textContent = 'A bank alert matched this payment. It is not confirmed against a bank statement yet.';
+            if (codApiBox) codApiBox.style.display = 'none';
+          } else if (data.status === 'RECONCILED') {
+            if (titleEl) titleEl.textContent = 'Payment reconciled';
+            if (descEl) descEl.textContent = 'This payment was matched to a bank statement.';
+            if (codApiBox) codApiBox.style.display = 'none';
           } else {
             if (titleEl) titleEl.textContent = 'Payment Successful!';
             if (descEl) descEl.textContent = 'Your payment was automatically verified by YouPI PG banking observers.';
             if (codApiBox) codApiBox.style.display = 'none';
           }
 
-          emitTriggerHook('PAYMENT_COMPLETED', { amount: data.amount, method: data.method, isCod: isCodOrder });
+          emitTriggerHook('PAYMENT_COMPLETED', { amount: data.amount, method: data.method, isCod: isCodOrder, status: data.status });
 
           try {
+            const merchantEvent = data.status === 'OBSERVED_SUCCESS'
+              ? 'youpi.payment_observed'
+              : (data.status === 'RECONCILED' ? 'youpi.payment_reconciled' : 'youpi.payment_success');
             postToMerchant({
-              event: 'youpi.payment_success',
+              event: merchantEvent,
               data: data
             });
           } catch (e) { }
@@ -2701,7 +2732,7 @@
 
     // Continuous 2-second fallback polling: guarantees instant response when cashier confirms/declines or queues clear
     setInterval(() => {
-      if (state && (state.status === 'SUCCESS' || state.status === 'FAILED' || state.status === 'EXPIRED' || state.status === 'BLOCKED' || state.isBanned)) {
+      if (state && (state.status === 'SUCCESS' || state.status === 'OBSERVED_SUCCESS' || state.status === 'RECONCILED' || state.status === 'MANUAL_REVIEW' || state.status === 'FAILED' || state.status === 'EXPIRED' || state.status === 'BLOCKED' || state.isBanned)) {
         return;
       }
       loadState();

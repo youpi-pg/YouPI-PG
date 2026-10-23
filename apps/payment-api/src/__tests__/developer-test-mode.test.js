@@ -159,7 +159,7 @@ describe('Section 12: Developer Test Mode Acceptance Tests (All 29 Points)', () 
 
     // Confirm state machine moved session
     const updated = sessionRepo.findById(s1.id);
-    assert.ok([PaymentStatus.SUCCESS, PaymentStatus.PROCESSING].includes(updated.status));
+    assert.ok([PaymentStatus.OBSERVED_SUCCESS, PaymentStatus.PROCESSING].includes(updated.status));
   });
 
   // ---------------------------------------------------------------------------

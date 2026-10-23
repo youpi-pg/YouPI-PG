@@ -157,13 +157,14 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
 
     assert.equal(obsRes.status, 200);
     assert.equal(obsRes.body.attribution.attributed, true);
-    assert.equal(obsRes.body.attribution.outcomeStatus, PaymentStatus.SUCCESS);
+    assert.equal(obsRes.body.attribution.outcomeStatus, PaymentStatus.OBSERVED_SUCCESS);
     assert.equal(obsRes.body.attribution.paymentSessionId, paymentIdA);
 
-    // 6. Verify Payment A is SUCCESS via public API
+    // 6. Verify Payment A is observed, not bank-reconciled, via public API
     const verifyA = await request(`/api/v1/payments/${paymentIdA}`);
     assert.equal(verifyA.status, 200);
-    assert.equal(verifyA.body.status, 'SUCCESS');
+    assert.equal(verifyA.body.status, 'OBSERVED_SUCCESS');
+    assert.equal(verifyA.body.settlementState, 'NOT_RECONCILED');
     assert.ok(verifyA.body.completedAt);
 
     // 7. Verify Payment B has been automatically promoted to ACTIVE in the queue!
@@ -572,7 +573,8 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
 
     // Check payment status: must be SUCCESS with Level 1
     const checkL1 = await request(`/api/v1/payments/${paymentId}`, { headers: merchantHeaders(merchantSecret) });
-    assert.equal(checkL1.body.status, 'SUCCESS');
+    assert.equal(checkL1.body.status, 'OBSERVED_SUCCESS');
+    assert.equal(checkL1.body.settlementState, 'NOT_RECONCILED');
     assert.equal(checkL1.body.verificationLevel, 1);
     assert.deepEqual(checkL1.body.verificationSources, ['GOOGLE_MESSAGES']);
 
@@ -946,17 +948,18 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
 
       // Payment MUST be immediately SUCCESS for customer
       const checkAfterObs1 = await request(`/api/v1/payments/${paymentId}`, { headers: merchantHeaders(merchantSecret) });
-      assert.equal(checkAfterObs1.body.status, 'SUCCESS');
+      assert.equal(checkAfterObs1.body.status, 'OBSERVED_SUCCESS');
       assert.equal(checkAfterObs1.body.verificationLevel, 1);
 
       // Checkout state MUST reflect SUCCESS immediately
       const stateAfterObs1 = await request(`/api/v1/checkout/${paymentId}/state`);
-      assert.equal(stateAfterObs1.body.status, 'SUCCESS');
+      assert.equal(stateAfterObs1.body.status, 'OBSERVED_SUCCESS');
 
       // Wait 150ms for webhook dispatch
       await new Promise(r => setTimeout(r, 150));
       assert.equal(webhookDeliveries.length, 1);
-      assert.equal(webhookDeliveries[0].body.event, 'SUCCESS');
+      assert.equal(webhookDeliveries[0].body.event, 'OBSERVED_SUCCESS');
+      assert.equal(webhookDeliveries[0].body.settlementState, 'NOT_RECONCILED');
       assert.equal(webhookDeliveries[0].body.orderId, 'AUTODETECT-ORD-777');
       assert.equal(webhookDeliveries[0].body.amount, '320.00');
 

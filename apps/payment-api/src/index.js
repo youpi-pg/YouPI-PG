@@ -45,6 +45,7 @@ import { registerPaymentRoutes } from './routes/payments.routes.js';
 import { registerCheckoutRoutes } from './routes/checkout.routes.js';
 import { registerPollerRoutes } from './routes/pollers.routes.js';
 import { registerAdminRoutes } from './routes/admin.routes.js';
+import { registerStatementRoutes } from './routes/statement.routes.js';
 import { registerCustomerRoutes } from './routes/customer.routes.js';
 import { registerDeviceRoutes } from './routes/device.routes.js';
 import { getWhatsAppBerryService, WhatsAppBerryService } from './services/whatsapp-berry.service.js';
@@ -167,6 +168,46 @@ export function createPaymentApp(customDb = null, options = {}) {
     }
     return promoted;
   }
+
+  eventEmitter.on('PAYMENT.OBSERVED_SUCCESS', (data) => {
+    const session = sessionRepo.findById(data.paymentId);
+    if (session) {
+      server.broadcastSse(session.id, 'status_change', {
+        status: PaymentStatus.OBSERVED_SUCCESS,
+        settlementState: 'NOT_RECONCILED',
+        verificationLevel: data.verificationLevel || session.verificationLevel || 1,
+        verificationTag: data.verificationTag || session.verificationTag,
+        sources: data.sources || session.verificationSources
+      });
+      webhookEngine.dispatch('OBSERVED_SUCCESS', session).catch(() => {});
+      handleSlotFreedAndPromote(session.receivingAccountId);
+    }
+  });
+
+  eventEmitter.on('PAYMENT.MANUAL_REVIEW', (data) => {
+    const session = sessionRepo.findById(data.paymentId);
+    if (session) {
+      server.broadcastSse(session.id, 'status_change', {
+        status: PaymentStatus.MANUAL_REVIEW,
+        settlementState: 'MANUAL_REVIEW',
+        reason: data.reason || null
+      });
+      webhookEngine.dispatch('MANUAL_REVIEW', session).catch(() => {});
+      handleSlotFreedAndPromote(session.receivingAccountId);
+    }
+  });
+
+  eventEmitter.on('PAYMENT.RECONCILED', (data) => {
+    const session = sessionRepo.findById(data.paymentId);
+    if (session && session.status === PaymentStatus.RECONCILED) {
+      server.broadcastSse(session.id, 'status_change', {
+        status: PaymentStatus.RECONCILED,
+        settlementState: 'RECONCILED',
+        statementLineId: data.statementLineId || null
+      });
+      webhookEngine.dispatch('RECONCILED', session).catch(() => {});
+    }
+  });
 
   // When a payment succeeds, fails, expires, or cancels: dispatch webhook & promote next queued customer
   eventEmitter.on('PAYMENT.SUCCESS', (data) => {
@@ -386,6 +427,7 @@ export function createPaymentApp(customDb = null, options = {}) {
   registerCheckoutRoutes(server, context);
   registerPollerRoutes(server, context);
   registerAdminRoutes(server, context);
+  registerStatementRoutes(server, context);
   registerCustomerRoutes(server, context);
   registerDeviceRoutes(server, context);
 

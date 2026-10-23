@@ -6,6 +6,13 @@ export const PaymentStatus = Object.freeze({
   QUEUED: 'QUEUED',
   ACTIVE: 'ACTIVE',
   PROCESSING: 'PROCESSING',
+  /** Observer alert matched. Not a bank-statement confirmation. Do not fulfill. */
+  OBSERVED_SUCCESS: 'OBSERVED_SUCCESS',
+  /** Reserved for a future statement-import match. Observers must not set this. */
+  RECONCILED: 'RECONCILED',
+  /** Ambiguous or suspicious evidence. Not payable. */
+  MANUAL_REVIEW: 'MANUAL_REVIEW',
+  /** COD or counter order placed. Not an observer settlement. */
   SUCCESS: 'SUCCESS',
   FAILED: 'FAILED',
   EXPIRED: 'EXPIRED',
@@ -16,6 +23,9 @@ export const PaymentStatus = Object.freeze({
  * Public-facing payment outcomes consumed by external merchants.
  */
 export const PublicPaymentOutcome = Object.freeze({
+  OBSERVED_SUCCESS: 'OBSERVED_SUCCESS',
+  RECONCILED: 'RECONCILED',
+  MANUAL_REVIEW: 'MANUAL_REVIEW',
   SUCCESS: 'SUCCESS',
   FAILED: 'FAILED',
   EXPIRED: 'EXPIRED',
@@ -59,7 +69,8 @@ export const ObservationAttributionStatus = Object.freeze({
   UNATTRIBUTED: 'UNATTRIBUTED',
   ATTRIBUTED: 'ATTRIBUTED',
   LATE_UNMATCHED: 'LATE_UNMATCHED',
-  DUPLICATE_IGNORED: 'DUPLICATE_IGNORED'
+  DUPLICATE_IGNORED: 'DUPLICATE_IGNORED',
+  AMBIGUOUS: 'AMBIGUOUS'
 });
 
 /**

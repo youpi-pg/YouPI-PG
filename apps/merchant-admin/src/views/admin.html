@@ -4437,7 +4437,7 @@
       let dualVerify = 0;
 
       payments.forEach(p => {
-        if (p.status === 'SUCCESS') {
+        if (p.status === 'RECONCILED' || p.status === 'SUCCESS') {
           successCount++;
           successVol += Number(p.amountPaise);
           if (p.verificationLevel >= 2) dualVerify++;
@@ -4625,7 +4625,7 @@
 
         tbody.innerHTML = (data.payments || []).map(p => {
           let verifyBadge = '<span style="color:var(--text-muted); font-size:0.75rem;">-</span>';
-          if (p.status === 'SUCCESS') {
+          if (p.status === 'SUCCESS' || p.status === 'OBSERVED_SUCCESS' || p.status === 'RECONCILED' || p.status === 'MANUAL_REVIEW') {
           const tag = p.verificationTag || (p.verificationLevel >= 2 ? 'Dual Verification' : 'Single Verification');
           if (p.verificationLevel >= 2) {
             verifyBadge = `<span class="badge badge-success">✓✓ ${escapeHtmlValue(tag)}</span>`;
@@ -4644,7 +4644,7 @@
             <td><code>${p.id}</code></td>
             <td>₹${(Number(p.amountPaise) / 100).toFixed(2)}</td>
             <td>${escapeHtmlValue(p.method)}</td>
-            <td><span class="badge ${p.status === 'SUCCESS' ? 'badge-success' : (p.status === 'ACTIVE' ? 'badge-info' : 'badge-danger')}">${escapeHtmlValue(p.status)}</span></td>
+            <td><span class="badge ${p.status === 'RECONCILED' || p.status === 'SUCCESS' ? 'badge-success' : (p.status === 'OBSERVED_SUCCESS' ? 'badge-warning' : (p.status === 'MANUAL_REVIEW' ? 'badge-danger' : (p.status === 'ACTIVE' ? 'badge-info' : 'badge-danger')))}">${escapeHtmlValue(p.status === 'OBSERVED_SUCCESS' ? 'Observed (not reconciled)' : p.status)}</span></td>
             <td>${verifyBadge}</td>
             <td>${sourcesChips}</td>
             <td>${escapeHtmlValue(new Date(p.createdAt).toLocaleTimeString())}</td>
@@ -6751,7 +6751,9 @@
           let badgeBg = '#1e293b';
           if (s.status === 'ACTIVE') { badgeColor = '#0f172a'; badgeBg = '#22c55e'; }
           else if (s.status === 'PROCESSING') { badgeColor = '#0f172a'; badgeBg = '#fbbf24'; }
-          else if (s.status === 'SUCCESS') { badgeColor = '#ffffff'; badgeBg = '#059669'; }
+          else if (s.status === 'RECONCILED' || s.status === 'SUCCESS') { badgeColor = '#ffffff'; badgeBg = '#059669'; }
+          else if (s.status === 'OBSERVED_SUCCESS') { badgeColor = '#78350f'; badgeBg = '#fcd34d'; }
+          else if (s.status === 'MANUAL_REVIEW') { badgeColor = '#ffffff'; badgeBg = '#b45309'; }
           else if (s.status === 'CANCELLED' || s.status === 'EXPIRED' || s.status === 'FAILED') { badgeColor = '#ffffff'; badgeBg = '#ef4444'; }
 
           return `
@@ -6834,7 +6836,7 @@
       const btnSms = document.getElementById('simBtnPushSms');
       const btnGmail = document.getElementById('simBtnPushGmail');
 
-      const isTerminal = ['SUCCESS', 'FAILED', 'EXPIRED', 'CANCELLED'].includes(sess.status);
+      const isTerminal = ['SUCCESS', 'OBSERVED_SUCCESS', 'RECONCILED', 'MANUAL_REVIEW', 'FAILED', 'EXPIRED', 'CANCELLED'].includes(sess.status);
       if (isTerminal) {
         if (notice) notice.style.display = 'block';
         if (btnSms) { btnSms.disabled = true; btnSms.style.opacity = '0.5'; btnSms.style.cursor = 'not-allowed'; }

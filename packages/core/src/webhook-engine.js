@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { generateHmac, toRupeesString, validateOutboundWebhookUrl } from '@youpi/common';
-import { isTerminalStatus, toPublicOutcome } from './state-machine.js';
+import { toPublicOutcome, isDispatchableOutcome, settlementStateFor } from './state-machine.js';
 
 export class WebhookEngine {
   /**
@@ -28,7 +28,7 @@ export class WebhookEngine {
       return { delivered: false, deliveryId: '', error: 'No webhook URL configured for merchant.' };
     }
 
-    const publicOutcome = isTerminalStatus(event) ? toPublicOutcome(event) : event;
+    const publicOutcome = isDispatchableOutcome(event) ? toPublicOutcome(event) : event;
     const nowIso = new Date().toISOString();
 
     // 1. Up-front secret validation: if webhookSecret is missing, persist a failed row so it is auditable
@@ -106,6 +106,7 @@ export class WebhookEngine {
       utr: String(utr || ''),
       verificationTag: session.verificationTag || session.verification_tag || (session.method === 'COD' ? 'COD_ORDER_PLACED' : 'UNVERIFIED'),
       verificationLevel: session.verificationLevel != null ? Number(session.verificationLevel) : (session.verification_level != null ? Number(session.verification_level) : (session.method === 'COD' ? 1 : 0)),
+      settlementState: settlementStateFor(publicOutcome),
       completedAt: session.completedAt ? (typeof session.completedAt.toISOString === 'function' ? session.completedAt.toISOString() : String(session.completedAt)) : new Date().toISOString(),
       metadata: session.metadata || {}
     };

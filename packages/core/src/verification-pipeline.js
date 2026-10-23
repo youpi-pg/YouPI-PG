@@ -272,7 +272,7 @@ export class PaymentVerificationPipeline {
       if (!session && input.receivingAccountId) {
         const sixtySecsAgo = new Date(Date.now() - 60000).toISOString();
         const row = this.db.queryOne(
-          `SELECT * FROM payment_sessions WHERE receiving_account_id = ? AND status = 'SUCCESS' AND completed_at >= ? ORDER BY completed_at DESC LIMIT 1`,
+          `SELECT * FROM payment_sessions WHERE receiving_account_id = ? AND status IN ('SUCCESS', 'OBSERVED_SUCCESS', 'RECONCILED') AND completed_at >= ? ORDER BY completed_at DESC LIMIT 1`,
           [input.receivingAccountId, sixtySecsAgo]
         );
         if (row) session = this.sessionRepo.mapRow(row);
@@ -780,7 +780,7 @@ export class PaymentVerificationPipeline {
       SELECT ps.id, ps.order_id
       FROM payment_sessions ps
       JOIN payment_observations po ON ps.attributed_observation_id = po.id
-      WHERE ps.status = 'SUCCESS'
+      WHERE ps.status IN ('SUCCESS', 'OBSERVED_SUCCESS', 'RECONCILED')
         AND ps.id != ?
         AND po.bank_reference_number = ?
       LIMIT 1
@@ -1081,12 +1081,19 @@ export class PaymentVerificationPipeline {
         stage: 6,
         name: 'ATTRIBUTION',
         status: 'FLAGGED_SUSPICIOUS',
-        outcomeStatus: 'SUSPICIOUS',
-        details: 'Payment held in SUSPICIOUS state (DO NOT PAY). Observation flagged for security review.'
+        outcomeStatus: PaymentStatus.MANUAL_REVIEW,
+        details: 'Payment held for manual review. Observation flagged for security review. Not bank-confirmed.'
       };
 
+      if (session?.id && this.sessionRepo && [PaymentStatus.ACTIVE, PaymentStatus.PROCESSING, PaymentStatus.INITIATED, PaymentStatus.QUEUED].includes(session.status)) {
+        try {
+          this.sessionRepo.transitionToTerminal(session.id, PaymentStatus.MANUAL_REVIEW, { reason: 'FRAUDULENT_PAYMENT_INJECTION' });
+          session.status = PaymentStatus.MANUAL_REVIEW;
+        } catch {}
+      }
+
       return buildResult({
-        finalStatus: 'SUSPICIOUS',
+        finalStatus: PaymentStatus.MANUAL_REVIEW,
         failingStage: 5,
         failingCondition: 'FRAUDULENT_PAYMENT_INJECTION',
         failingReason: securityDiagnostic,

@@ -1,7 +1,8 @@
 import { HttpServer } from '../server.js';
 import { toPaise, toRupeesString, resolveRuntimeUrls, PaymentStatus, safeEqual, verifyHmac } from '@youpi/common';
-import { isTerminalStatus, toPublicOutcome, verifyRegisteredDeviceCredentials } from '@youpi/core';
+import { isTerminalStatus, toPublicOutcome, settlementStateFor, verifyRegisteredDeviceCredentials } from '@youpi/core';
 import { isAdminRequest, isPaymentOwner } from '../auth-guard.js';
+import { checkUpiServerHealth, observerHealthEnforced, upiObserversAcceptingPayments } from './checkout.routes.js';
 
 /**
  * Registers merchant-facing payment routes.
@@ -176,7 +177,10 @@ export function registerPaymentRoutes(server, ctx) {
       }
 
       // If SUCCESS: order is already paid, return existing completed session
-      if (existing.status === PaymentStatus.SUCCESS) {
+      if (existing.status === PaymentStatus.SUCCESS
+        || existing.status === PaymentStatus.OBSERVED_SUCCESS
+        || existing.status === PaymentStatus.RECONCILED
+        || existing.status === PaymentStatus.MANUAL_REVIEW) {
         HttpServer.json(res, 200, {
           paymentId: existing.id,
           orderId: existing.orderId,
@@ -249,6 +253,21 @@ export function registerPaymentRoutes(server, ctx) {
     }
 
     const isCounterPayment = body.method === 'CASH_COUNTER' || body.method === 'CARD_COUNTER';
+    const isCod = body.method === 'COD';
+    if (!isCounterPayment && !isCod && observerHealthEnforced()) {
+      const health = await checkUpiServerHealth(ctx, [], 'ONLINE', merchant.id);
+      if (!upiObserversAcceptingPayments(health)) {
+        HttpServer.json(res, 503, {
+          error: 'UPI observers are offline. New payments are not accepted until the SMS observer heartbeat is fresh.',
+          code: 'OBSERVERS_UNHEALTHY',
+          smsHealthy: Boolean(health.smsHealthy),
+          gmailHealthy: Boolean(health.gmailHealthy),
+          retryAfterSeconds: 60,
+          recovery: 'Pair or reconnect the Android or Google Messages observer. A heartbeat within 5 minutes allows new UPI sessions. In-flight sessions are left to their existing timers.'
+        });
+        return;
+      }
+    }
 
     let receivingAccountId = null;
     let receivingAccountSnapshot = null;
@@ -394,6 +413,7 @@ export function registerPaymentRoutes(server, ctx) {
       amountPaise: session.amountPaise.toString(),
       currency: session.currency,
       status: publicStatus,
+      settlementState: settlementStateFor(publicStatus),
       method: session.method,
       completedAt: session.completedAt ? session.completedAt.toISOString() : null
     };

@@ -16,6 +16,7 @@ export const VALID_TRANSITIONS = Object.freeze({
     PaymentStatus.QUEUED,
     PaymentStatus.CANCELLED,
     PaymentStatus.EXPIRED,
+    PaymentStatus.MANUAL_REVIEW,
     // COD: placing a Cash-on-Delivery order is a business success even before any UPI
     // slot is acquired, so an order that was never activated still terminates as SUCCESS.
     PaymentStatus.SUCCESS
@@ -24,32 +25,71 @@ export const VALID_TRANSITIONS = Object.freeze({
     PaymentStatus.ACTIVE,
     PaymentStatus.CANCELLED,
     PaymentStatus.EXPIRED,
+    PaymentStatus.MANUAL_REVIEW,
     // COD: a queued UPI order can be converted to a placed COD order.
     PaymentStatus.SUCCESS
   ],
   [PaymentStatus.ACTIVE]: [
     PaymentStatus.PROCESSING,
-    // Tier-1 attribution settles a still-ACTIVE session as soon as the bank notification is
-    // attributed, without waiting for the customer to press "I have paid". A bank-confirmed
-    // credit is terminal regardless of whether the customer pressed the button.
+    // Observer match. Not a bank-statement confirmation.
+    PaymentStatus.OBSERVED_SUCCESS,
+    PaymentStatus.MANUAL_REVIEW,
+    // COD / cashier confirmation only. UPI alert code must not use SUCCESS.
     PaymentStatus.SUCCESS,
     PaymentStatus.FAILED,
     PaymentStatus.EXPIRED,
     PaymentStatus.CANCELLED
   ],
   [PaymentStatus.PROCESSING]: [
+    PaymentStatus.OBSERVED_SUCCESS,
+    PaymentStatus.MANUAL_REVIEW,
     PaymentStatus.SUCCESS,
     PaymentStatus.FAILED,
     PaymentStatus.EXPIRED
   ],
+  [PaymentStatus.OBSERVED_SUCCESS]: [
+    PaymentStatus.RECONCILED,
+    PaymentStatus.MANUAL_REVIEW
+  ],
+  [PaymentStatus.MANUAL_REVIEW]: [
+    PaymentStatus.RECONCILED
+  ],
+  [PaymentStatus.RECONCILED]: [],
   [PaymentStatus.SUCCESS]: [],
   [PaymentStatus.FAILED]: [],
   [PaymentStatus.EXPIRED]: [],
   [PaymentStatus.CANCELLED]: []
 });
 
-/** States that can never change again. */
+/** Slot-releasing outcomes. OBSERVED_SUCCESS is not bank settlement. */
+export const SLOT_RELEASE_STATES = Object.freeze([
+  PaymentStatus.OBSERVED_SUCCESS,
+  PaymentStatus.RECONCILED,
+  PaymentStatus.MANUAL_REVIEW,
+  PaymentStatus.SUCCESS,
+  PaymentStatus.FAILED,
+  PaymentStatus.EXPIRED,
+  PaymentStatus.CANCELLED
+]);
+
+/**
+ * Public/dispatch outcomes. OBSERVED_SUCCESS and MANUAL_REVIEW are included so webhooks
+ * and the queue treat them as closed, but they are not immutable: a future statement
+ * match may move them to RECONCILED. No observer path performs that move.
+ */
 export const TERMINAL_STATES = Object.freeze([
+  PaymentStatus.OBSERVED_SUCCESS,
+  PaymentStatus.RECONCILED,
+  PaymentStatus.MANUAL_REVIEW,
+  PaymentStatus.SUCCESS,
+  PaymentStatus.FAILED,
+  PaymentStatus.EXPIRED,
+  PaymentStatus.CANCELLED
+]);
+
+/** States that must not change again. */
+export const IMMUTABLE_STATES = Object.freeze([
+  PaymentStatus.RECONCILED,
   PaymentStatus.SUCCESS,
   PaymentStatus.FAILED,
   PaymentStatus.EXPIRED,

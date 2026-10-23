@@ -616,12 +616,12 @@ describe('Feature 65: Developer Payment Simulator Integration & Acceptance Suite
 
     // Verify session in database transitioned to SUCCESS
     const sessionDb = testDb.db.prepare('SELECT status FROM payment_sessions WHERE id = ?').get(sessId);
-    assert.equal(sessionDb.status, 'SUCCESS');
+    assert.equal(sessionDb.status, 'OBSERVED_SUCCESS');
 
     // Normal checkout state now reports SUCCESS
     const stateAfter = await request(`/api/v1/checkout/${sessId}/state`);
     assert.equal(stateAfter.status, 200);
-    assert.equal(stateAfter.body.status, 'SUCCESS');
+    assert.equal(stateAfter.body.status, 'OBSERVED_SUCCESS');
   });
 
   test('33. Simulation event is audit logged with full evidence and accessible via history', async () => {

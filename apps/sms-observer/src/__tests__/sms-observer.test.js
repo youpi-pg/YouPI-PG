@@ -119,11 +119,11 @@ describe('Google Messages / SMS Payment Observer Integration Tests', () => {
       assert.equal(result.accepted, true);
       assert.equal(result.attribution.attributed, true);
       assert.equal(result.attribution.paymentSessionId, session.id);
-      assert.equal(result.attribution.outcomeStatus, PaymentStatus.SUCCESS);
+      assert.equal(result.attribution.outcomeStatus, PaymentStatus.OBSERVED_SUCCESS);
 
       // 3. Verify session in DB updated to SUCCESS
       const updated = apiInstance.app.context.sessionRepo.findById(session.id);
-      assert.equal(updated.status, PaymentStatus.SUCCESS);
+      assert.equal(updated.status, PaymentStatus.OBSERVED_SUCCESS);
     });
   });
 });

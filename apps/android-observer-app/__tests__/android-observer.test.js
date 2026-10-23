@@ -88,11 +88,11 @@ describe('Android Payment Observer Integration Tests', () => {
     assert.equal(res.body.accepted, true);
     assert.equal(res.body.attribution.attributed, true);
     assert.equal(res.body.attribution.paymentSessionId, session.id);
-    assert.equal(res.body.attribution.outcomeStatus, PaymentStatus.SUCCESS);
+    assert.equal(res.body.attribution.outcomeStatus, PaymentStatus.OBSERVED_SUCCESS);
 
     // 3. Verify session in DB updated to SUCCESS
     const updated = apiInstance.app.context.sessionRepo.findById(session.id);
-    assert.equal(updated.status, PaymentStatus.SUCCESS);
+    assert.equal(updated.status, PaymentStatus.OBSERVED_SUCCESS);
   });
 
   test('Issue #61: rejects notification observation when rawNotification has missing or empty package', async () => {

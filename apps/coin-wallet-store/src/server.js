@@ -2,6 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
 import { YoupiPaymentClient } from '@youpi/merchant-sdk';
 import { getCoinStoreWebhookSecret } from '@youpi/common';
 
@@ -109,11 +110,15 @@ export class CoinWalletStoreServer {
 
     // orderId -> gateway paymentId for orders this store created (used to verify payments server-side)
     this.orderPayments = new Map();
-    // orderId -> { orderId, paymentId, amountPaise, coins, packName, createdAt }
     this.orders = new Map();
 
-    // Recently processed X-Gateway-Delivery-Id values, used to reject replayed webhooks.
-    this.seenDeliveryIds = new Map();
+    const underTest = process.env.NODE_ENV === 'test' || Boolean(process.env.NODE_TEST_CONTEXT);
+    this.idempotencyPath = options.idempotencyPath
+      || process.env.COIN_STORE_IDEMPOTENCY_PATH
+      || (underTest
+        ? ':memory:'
+        : path.resolve(__dirname, '../../../data/coin-wallet-fulfillment.sqlite'));
+    this.openFulfillmentLedger();
 
     this.paymentClient = new YoupiPaymentClient({
       apiUrl: this.gatewayApiUrl,
@@ -121,9 +126,9 @@ export class CoinWalletStoreServer {
       webhookSecret: this.webhookSecret
     });
 
-    // In-memory persistent wallet balance & ledger for demo store
-    this.walletCoins = 50; // default starting balance
-    this.transactionHistory = [];
+    // Starting balance plus durable reconciled grants. Observer matches do not add coins.
+    this.walletCoins = 50 + this.sumClaimedCoins();
+    this.transactionHistory = this.loadClaimHistory();
 
     this.storeHtml = fs.readFileSync(path.join(__dirname, 'store.html'), 'utf8');
     this.walletHtml = fs.readFileSync(path.join(__dirname, 'wallet.html'), 'utf8');
@@ -132,6 +137,93 @@ export class CoinWalletStoreServer {
     this.orderSuspiciousHtml = fs.readFileSync(path.join(__dirname, 'order-suspicious.html'), 'utf8');
     this.orderExpiredHtml = fs.readFileSync(path.join(__dirname, 'order-expired.html'), 'utf8');
     this.orderCancelledHtml = fs.readFileSync(path.join(__dirname, 'order-cancelled.html'), 'utf8');
+  }
+
+  openFulfillmentLedger() {
+    if (this.idempotencyPath !== ':memory:') {
+      fs.mkdirSync(path.dirname(this.idempotencyPath), { recursive: true });
+    }
+    this.ledger = new DatabaseSync(this.idempotencyPath);
+    this.ledger.exec(`
+      CREATE TABLE IF NOT EXISTS webhook_receipts (
+        delivery_id TEXT PRIMARY KEY,
+        event_type TEXT NOT NULL,
+        order_id TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS fulfillment_claims (
+        order_id TEXT PRIMARY KEY,
+        delivery_id TEXT UNIQUE,
+        payment_id TEXT,
+        amount_paise INTEGER NOT NULL,
+        coins INTEGER NOT NULL,
+        pack_name TEXT,
+        created_at TEXT NOT NULL
+      );
+    `);
+  }
+
+  sumClaimedCoins() {
+    const row = this.ledger.prepare('SELECT COALESCE(SUM(coins), 0) AS total FROM fulfillment_claims').get();
+    return Number(row?.total || 0);
+  }
+
+  loadClaimHistory() {
+    const rows = this.ledger.prepare(
+      'SELECT order_id, coins, pack_name, created_at FROM fulfillment_claims ORDER BY created_at DESC'
+    ).all();
+    return rows.map(row => ({
+      orderId: row.order_id,
+      coins: row.coins,
+      packName: row.pack_name || 'Coin Pack',
+      status: 'CREDITED',
+      timestamp: row.created_at
+    }));
+  }
+
+  receiptSeen(deliveryId) {
+    if (!deliveryId) return false;
+    return Boolean(this.ledger.prepare('SELECT delivery_id FROM webhook_receipts WHERE delivery_id = ?').get(deliveryId));
+  }
+
+  noteReceipt(deliveryId, eventType, orderId) {
+    if (!deliveryId) return;
+    this.ledger.prepare(
+      'INSERT OR IGNORE INTO webhook_receipts (delivery_id, event_type, order_id, created_at) VALUES (?, ?, ?, ?)'
+    ).run(deliveryId, String(eventType || ''), orderId || null, new Date().toISOString());
+  }
+
+  /**
+   * Durable once-only grant. A second delivery id or a process restart cannot grant again.
+   * @returns {{ claimed: boolean }}
+   */
+  claimFulfillment({ orderId, deliveryId, paymentId, amountPaise, coins, packName }) {
+    this.ledger.exec('BEGIN IMMEDIATE');
+    try {
+      const existing = this.ledger.prepare('SELECT order_id FROM fulfillment_claims WHERE order_id = ?').get(orderId);
+      if (existing) {
+        this.ledger.exec('ROLLBACK');
+        return { claimed: false };
+      }
+      this.ledger.prepare(`
+        INSERT INTO fulfillment_claims (order_id, delivery_id, payment_id, amount_paise, coins, pack_name, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        orderId,
+        deliveryId || null,
+        paymentId || null,
+        Number(amountPaise),
+        Number(coins),
+        packName || 'Coin Pack',
+        new Date().toISOString()
+      );
+      this.ledger.exec('COMMIT');
+      return { claimed: true };
+    } catch (err) {
+      try { this.ledger.exec('ROLLBACK'); } catch {}
+      if (String(err.message || '').includes('UNIQUE')) return { claimed: false };
+      throw err;
+    }
   }
 
   creditCoins(orderId, coins, packName) {
@@ -145,13 +237,9 @@ export class CoinWalletStoreServer {
     });
   }
 
-  /** Records a processed delivery id and prunes entries older than the accepted skew window. */
+  /** Records a processed delivery id. Kept for callers; persistence is the ledger. */
   rememberDeliveryId(deliveryId) {
-    const now = Date.now();
-    for (const [id, seenAt] of this.seenDeliveryIds) {
-      if (now - seenAt > WEBHOOK_MAX_SKEW_MS * 2) this.seenDeliveryIds.delete(id);
-    }
-    this.seenDeliveryIds.set(deliveryId, now);
+    this.noteReceipt(deliveryId, 'SEEN', null);
   }
 
   createServer() {
@@ -563,7 +651,7 @@ export class CoinWalletStoreServer {
               return;
             }
 
-            if (!session || session.status !== 'SUCCESS' || session.method !== 'UPI') {
+            if (!session || session.method !== 'UPI') {
               sendJson(402, { error: 'Payment not completed', status: session?.status || 'UNKNOWN' });
               return;
             }
@@ -577,33 +665,26 @@ export class CoinWalletStoreServer {
             }
 
             const orderId = session.orderId;
-            if (this.transactionHistory.some(t => t.orderId === orderId)) {
-              sendJson(200, { success: true, coins: this.walletCoins, message: 'Already credited' });
+            const existingClaim = this.ledger.prepare('SELECT coins FROM fulfillment_claims WHERE order_id = ?').get(orderId);
+            if (existingClaim) {
+              sendJson(200, { success: true, coins: this.walletCoins, credited: false, message: 'Already credited' });
               return;
             }
 
-            // Always derive credited coins from the authoritative local order record (or paid amountPaise),
-            // never from untrusted client parameters or out-of-band metadata.
-            const paidPaise = Number(localOrder?.amountPaise ?? session.amountPaise);
-            const derivedFromAmount = Number.isFinite(paidPaise) && paidPaise > 0
-              ? Math.min(Math.max(1, Math.round(paidPaise / 100)), MAX_TOPUP_RUPEES)
-              : 1;
-            const creditedCoins = localOrder ? localOrder.coins : derivedFromAmount;
-            const finalPackName = sanitizePackName(localOrder?.packName || session.metadata?.packName || 'Coin Pack');
+            const closedEvidence = ['OBSERVED_SUCCESS', 'SUCCESS', 'RECONCILED', 'MANUAL_REVIEW'].includes(session.status);
+            if (!closedEvidence) {
+              sendJson(402, { error: 'Payment not completed', status: session.status, credited: false });
+              return;
+            }
 
-            this.creditCoins(orderId, creditedCoins, finalPackName);
-            console.log(`[Coin Wallet Store] Verified & credited ${creditedCoins} coins for Order ${orderId}. New balance: ${this.walletCoins}`);
-
-            res.writeHead(200, {
-              'Content-Type': 'application/json',
-              'Access-Control-Allow-Origin': '*'
+            // The browser callback is never a grant. Coins move only on a signed RECONCILED webhook.
+            sendJson(202, {
+              success: false,
+              credited: false,
+              status: session.status,
+              settlementState: session.status === 'RECONCILED' ? 'RECONCILED_AWAITING_WEBHOOK' : 'NOT_RECONCILED',
+              error: 'Browser confirmation does not grant coins. Coins are granted only from a signed RECONCILED webhook.'
             });
-            res.end(JSON.stringify({
-              success: true,
-              coins: this.walletCoins,
-              credited: creditedCoins,
-              packName: finalPackName
-            }));
           } catch (err) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: err.message }));
@@ -631,17 +712,16 @@ export class CoinWalletStoreServer {
           const deliveryId = req.headers['x-gateway-delivery-id'] || '';
           const timestamp = req.headers['x-gateway-timestamp'] || '';
 
-          // Reject a replayed delivery. Without this, one captured request can be resent
-          // indefinitely and re-credited after the in-memory dedupe is lost on restart.
+          // Reject a replayed delivery. The receipt row survives process restarts.
           const ts = Number(timestamp);
           if (!Number.isFinite(ts) || Math.abs(Date.now() - ts) > WEBHOOK_MAX_SKEW_MS) {
             res.writeHead(401, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Webhook timestamp missing or outside the accepted window.' }));
             return;
           }
-          if (deliveryId && this.seenDeliveryIds.has(deliveryId)) {
+          if (deliveryId && this.receiptSeen(deliveryId)) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ received: true, duplicate: true }));
+            res.end(JSON.stringify({ received: true, duplicate: true, credited: false }));
             return;
           }
 
@@ -653,13 +733,29 @@ export class CoinWalletStoreServer {
             });
 
             const paidMethod = event.method || event.data?.method;
-            // COD / counter 'SUCCESS' means an order was placed, not that money arrived.
-            if ((event.event === 'SUCCESS' || event.status === 'SUCCESS') && paidMethod === 'UPI') {
-              const orderId = event.orderId || event.data?.orderId;
+            const eventName = event.event || event.status;
+            const orderId = event.orderId || event.data?.orderId;
+            const currency = event.currency || event.data?.currency || 'INR';
+            if (deliveryId) this.noteReceipt(deliveryId, eventName, orderId);
+
+            // UPI SUCCESS and OBSERVED_SUCCESS are observer evidence. They do not grant coins.
+            if ((eventName === 'SUCCESS' || eventName === 'OBSERVED_SUCCESS') && paidMethod === 'UPI') {
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ received: true, credited: false, settlementState: 'NOT_RECONCILED' }));
+              return;
+            }
+
+            // Coins move only after a signed RECONCILED webhook for the same order, amount, and payment.
+            if (eventName === 'RECONCILED' && paidMethod === 'UPI') {
               const localOrder = orderId ? this.orders.get(orderId) : undefined;
               if (!localOrder && (!orderId || !this.orderPayments.has(orderId))) {
                 res.writeHead(404, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: 'Unknown order' }));
+                return;
+              }
+              if (currency !== 'INR') {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Webhook currency is not INR' }));
                 return;
               }
               const eventAmountPaise = Number(event.amountPaise ?? event.data?.amountPaise);
@@ -668,21 +764,41 @@ export class CoinWalletStoreServer {
                 res.end(JSON.stringify({ error: 'Webhook amount does not match order' }));
                 return;
               }
-
-              const alreadyCredited = this.transactionHistory.some(t => t.orderId === orderId);
-              if (!alreadyCredited) {
-                const coinsToAdd = localOrder
-                  ? localOrder.coins
-                  : Math.min(Math.max(1, Math.round(eventAmountPaise / 100)), MAX_TOPUP_RUPEES);
-                const packName = sanitizePackName(localOrder?.packName || event.metadata?.packName || event.data?.metadata?.packName);
-                this.creditCoins(orderId, coinsToAdd, packName);
-                console.log(`[Coin Wallet Store] Webhook received! Credited ${coinsToAdd} coins for Order ${orderId}. New balance: ${this.walletCoins}`);
+              const eventPaymentId = event.paymentId || event.data?.paymentId;
+              if (localOrder?.paymentId && eventPaymentId && eventPaymentId !== localOrder.paymentId) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Webhook paymentId does not match order' }));
+                return;
               }
+
+              const coinsToAdd = localOrder
+                ? localOrder.coins
+                : Math.min(Math.max(1, Math.round(eventAmountPaise / 100)), MAX_TOPUP_RUPEES);
+              const packName = sanitizePackName(localOrder?.packName || event.metadata?.packName || event.data?.metadata?.packName);
+              const claim = this.claimFulfillment({
+                orderId,
+                deliveryId: deliveryId || null,
+                paymentId: eventPaymentId || localOrder?.paymentId || null,
+                amountPaise: eventAmountPaise,
+                coins: coinsToAdd,
+                packName
+              });
+              if (claim.claimed) {
+                this.creditCoins(orderId, coinsToAdd, packName);
+                console.log(`[Coin Wallet Store] Reconciled webhook credited ${coinsToAdd} coins for Order ${orderId}. New balance: ${this.walletCoins}`);
+              }
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({
+                received: true,
+                credited: claim.claimed,
+                duplicate: !claim.claimed,
+                settlementState: 'RECONCILED'
+              }));
+              return;
             }
 
-            if (deliveryId) this.rememberDeliveryId(deliveryId);
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ received: true, credited: true }));
+            res.end(JSON.stringify({ received: true, credited: false }));
           } catch (err) {
             console.error('[Coin Wallet Store] Webhook verification failed:', err.message);
             res.writeHead(401, { 'Content-Type': 'application/json' });
