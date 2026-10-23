@@ -180,8 +180,8 @@ export function registerAdminRoutes(server, ctx) {
     // Query live Google Messages browser automator status
     let smsStatus = { status: 'STANDBY', isPaired: false, messagesObserved: 0, isRunning: false };
     try {
-      const smsPort = Number(process.env.SMS_OBSERVER_PORT || 6002);
-      const smsRes = await fetch(`http://localhost:${smsPort}/api/browser/status`, {
+      const smsBaseUrl = process.env.SMS_OBSERVER_URL || `http://localhost:${process.env.SMS_OBSERVER_PORT || 6002}`;
+      const smsRes = await fetch(new URL('/api/browser/status', smsBaseUrl), {
         headers: { Authorization: `Bearer ${getObserverToken()}` },
         signal: AbortSignal.timeout(1500)
       });
@@ -193,8 +193,8 @@ export function registerAdminRoutes(server, ctx) {
     // Query live Gmail browser automator status
     let gmailStatus = { status: 'STANDBY', isLoggedIn: false, emailsObserved: 0, isRunning: false };
     try {
-      const gmailPort = Number(process.env.GMAIL_OBSERVER_PORT || 6003);
-      const gmailRes = await fetch(`http://localhost:${gmailPort}/api/browser/status`, {
+      const gmailBaseUrl = process.env.GMAIL_OBSERVER_URL || `http://localhost:${process.env.GMAIL_OBSERVER_PORT || 6003}`;
+      const gmailRes = await fetch(new URL('/api/browser/status', gmailBaseUrl), {
         headers: { Authorization: `Bearer ${getObserverToken()}` },
         signal: AbortSignal.timeout(1500)
       });
@@ -1545,7 +1545,8 @@ export function registerAdminRoutes(server, ctx) {
 
     // Stop poller in observer service
     try {
-      await fetch(`http://127.0.0.1:${process.env.GMAIL_OBSERVER_PORT || 6003}/stop`, { method: 'POST' }).catch(() => {});
+      const gmailBaseUrl = process.env.GMAIL_OBSERVER_URL || `http://127.0.0.1:${process.env.GMAIL_OBSERVER_PORT || 6003}`;
+      await fetch(new URL('/stop', gmailBaseUrl), { method: 'POST' }).catch(() => {});
     } catch {}
 
     HttpServer.json(res, 200, {

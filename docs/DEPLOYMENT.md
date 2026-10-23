@@ -2,8 +2,6 @@
 
 This document describes how to deploy and run the clean distributable **YOUPI PG V2** package.
 
----
-
 ## 1. Prerequisites
 
 - **Operating System**: Linux (Ubuntu 22.04+ / Debian 12+), macOS, or Windows 10/11 / Windows Server.
@@ -88,3 +86,19 @@ For production deployment:
 2. Point your public domain (e.g. `pay.yourdomain.com`) to port `7000` (Checkout Portal) or `6100` (Payment API).
    *The Checkout Portal automatically proxies all `/api/*` requests to the Payment API.*
 3. Update `BASE_PAYMENT_API_URL` and `BASE_CHECKOUT_URL` in `.env` to match your public HTTPS domain.
+## Vercel Services
+
+The root `vercel.json` defines the approved multi-service deployment. Public
+traffic is routed to `/` (checkout), `/api/*` (payment API), `/admin/*`
+(merchant admin), `/help/*` (payment help), and `/store/*` (coin wallet store).
+The control center, Gmail observer, and SMS observer remain internal services.
+
+Service-to-service URLs are injected by Vercel bindings at runtime. The
+application reads `PAYMENT_API_URL`, `CHECKOUT_PORTAL_URL`,
+`CONTROL_CENTER_URL`, `GMAIL_OBSERVER_URL`, and `SMS_OBSERVER_URL`; these are
+binding variables and must not be manually configured with deployment URLs.
+
+Vercel Services is currently beta. The native deployment still remains the
+recommended production target for the SQLite-backed gateway and its long-lived
+observer processes; a Vercel deployment must use a persistent database and
+separate worker strategy before handling production payment traffic.

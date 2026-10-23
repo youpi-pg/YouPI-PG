@@ -1,4 +1,5 @@
 import http from 'node:http';
+import https from 'node:https';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -97,7 +98,7 @@ export class CoinWalletStoreServer {
    */
   constructor(options = {}) {
     const internalPort = process.env.PAYMENT_API_PORT || 6100;
-    this.gatewayApiUrl = options.gatewayApiUrl || process.env.PAYMENT_API_INTERNAL_URL || `http://127.0.0.1:${internalPort}`;
+    this.gatewayApiUrl = options.gatewayApiUrl || process.env.PAYMENT_API_URL || process.env.PAYMENT_API_INTERNAL_URL || `http://127.0.0.1:${internalPort}`;
     this.merchantId = options.merchantId || '00000000-0000-0000-0000-000000000001';
     this.webhookSecret = options.webhookSecret || getCoinStoreWebhookSecret();
 
@@ -232,14 +233,16 @@ export class CoinWalletStoreServer {
 
       // REVERSE PROXY: /checkout/*, /icons/*, /css/*, and /js/* -> Checkout Portal (Port 7000)
       if (pathname.startsWith('/checkout') || pathname.startsWith('/icons/') || pathname.startsWith('/css/') || pathname.startsWith('/js/')) {
-        const portalPort = Number(process.env.CHECKOUT_PORT || 7000);
-        const proxyReq = http.request({
-          hostname: '127.0.0.1',
-          port: portalPort,
-          path: req.url,
+      const portalUrl = process.env.CHECKOUT_PORTAL_URL || `http://127.0.0.1:${process.env.CHECKOUT_PORT || 7000}`;
+      const targetUrl = new URL(req.url, portalUrl);
+      const requestClient = targetUrl.protocol === 'https:' ? https : http;
+      const proxyReq = requestClient.request({
+        hostname: targetUrl.hostname,
+        port: targetUrl.port || undefined,
+        path: `${targetUrl.pathname}${targetUrl.search}`,
           method: req.method,
           headers: {
-            ...sanitizedForwardHeaders(req, `localhost:${portalPort}`),
+          ...sanitizedForwardHeaders(req, targetUrl.host),
             'x-forwarded-host': req.headers.host || '',
             'x-forwarded-proto': req.headers['x-forwarded-proto'] || 'http'
           }
@@ -263,13 +266,14 @@ export class CoinWalletStoreServer {
       if (pathname.startsWith('/api/v1/')) {
         try {
           const parsedGateway = new URL(this.gatewayApiUrl);
-          const proxyReq = http.request({
+          const requestClient = parsedGateway.protocol === 'https:' ? https : http;
+          const proxyReq = requestClient.request({
             hostname: parsedGateway.hostname || '127.0.0.1',
-            port: Number(parsedGateway.port || process.env.PAYMENT_API_PORT || 6100),
-            path: req.url,
+            port: parsedGateway.port || undefined,
+            path: `${parsedGateway.pathname.replace(/\/$/, '')}${req.url}`,
             method: req.method,
             headers: {
-              ...sanitizedForwardHeaders(req, `${parsedGateway.hostname}:${parsedGateway.port}`),
+              ...sanitizedForwardHeaders(req, parsedGateway.host),
               'x-forwarded-host': req.headers.host || '',
               'x-forwarded-proto': req.headers['x-forwarded-proto'] || 'http'
             }

@@ -18,7 +18,7 @@ export class GmailBrowserAutomator {
    */
   constructor(options) {
     this.gmailPoller = options.gmailPoller;
-    this.apiBaseUrl = options.apiBaseUrl || process.env.BASE_PAYMENT_API_URL || 'http://localhost:6100';
+    this.apiBaseUrl = options.apiBaseUrl || process.env.PAYMENT_API_URL || process.env.BASE_PAYMENT_API_URL || 'http://localhost:6100';
     this.debuggingPort = options.debuggingPort || 9223;
     this.profileDir = path.join(rootDir, 'data/browser-sessions/gmail');
     this.stateFilePath = path.join(this.profileDir, 'login-state.json');

@@ -133,14 +133,18 @@ export function createPaymentApp(customDb = null, options = {}) {
 
   const server = new HttpServer();
   server.use(authGuard);
-  let checkoutBaseUrl = process.env.BASE_CHECKOUT_URL || 'http://localhost:7000';
+  let checkoutBaseUrl = process.env.CHECKOUT_PUBLIC_URL
+    || process.env.PUBLIC_APP_URL
+    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
+    || process.env.BASE_CHECKOUT_URL
+    || 'http://localhost:7000';
   try {
     const rootEnv = path.resolve(__dirname, '../../../.env');
     if (fs.existsSync(rootEnv)) {
       const raw = fs.readFileSync(rootEnv, 'utf8');
       for (const line of raw.split(/\r?\n/)) {
         const trimmed = line.trim();
-        if (trimmed.startsWith('BASE_CHECKOUT_URL=')) {
+        if (trimmed.startsWith('BASE_CHECKOUT_URL=') && !process.env.CHECKOUT_PUBLIC_URL && !process.env.PUBLIC_APP_URL) {
           const val = trimmed.split('=')[1]?.trim();
           if (val) checkoutBaseUrl = val.replace(/^["']|["']$/g, '');
         }
@@ -327,7 +331,9 @@ export function createPaymentApp(customDb = null, options = {}) {
     pollIntervalMs: Number(process.env.OBSERVER_POLL_INTERVAL_MS || 1500),
     minSweepCooldownMs: Number(process.env.OBSERVER_SWEEP_COOLDOWN_MS || 2000),
     smsPort: Number(process.env.SMS_OBSERVER_PORT || 6002),
-    gmailPort: Number(process.env.GMAIL_OBSERVER_PORT || 6003)
+    gmailPort: Number(process.env.GMAIL_OBSERVER_PORT || 6003),
+    smsBaseUrl: process.env.SMS_OBSERVER_URL,
+    gmailBaseUrl: process.env.GMAIL_OBSERVER_URL
   });
 
   // Execute crash recovery on boot

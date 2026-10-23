@@ -35,7 +35,7 @@ export class HelpServer {
    */
   constructor(options = {}) {
     this.db = options.db || getDatabase();
-    this.apiBaseUrl = options.apiBaseUrl || process.env.BASE_PAYMENT_API_URL || 'http://localhost:6100';
+    this.apiBaseUrl = options.apiBaseUrl || process.env.PAYMENT_API_URL || process.env.BASE_PAYMENT_API_URL || 'http://localhost:6100';
     this.ticketRepo = new SupportTicketRepository(this.db);
     this.htmlTemplatePath = path.join(__dirname, 'views', 'help.html');
     this.template = fs.readFileSync(this.htmlTemplatePath, 'utf8');

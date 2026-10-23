@@ -18,7 +18,7 @@ export class GoogleMessagesAutomator {
    */
   constructor(options) {
     this.smsService = options.smsService;
-    this.apiBaseUrl = options.apiBaseUrl || process.env.BASE_PAYMENT_API_URL || 'http://localhost:6100';
+    this.apiBaseUrl = options.apiBaseUrl || process.env.PAYMENT_API_URL || process.env.BASE_PAYMENT_API_URL || 'http://localhost:6100';
     this.debuggingPort = options.debuggingPort || 9222;
     this.profileDir = path.join(rootDir, 'data/browser-sessions/google-messages');
     this.stateFilePath = path.join(this.profileDir, 'pairing-state.json');

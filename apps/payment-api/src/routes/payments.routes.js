@@ -17,14 +17,25 @@ import { isAdminRequest, isPaymentOwner } from '../auth-guard.js';
  * }} ctx
  */
 export function registerPaymentRoutes(server, ctx) {
+  function resolvePublicDeploymentOrigin() {
+    const configured = process.env.CHECKOUT_PUBLIC_URL || process.env.PUBLIC_APP_URL;
+    if (configured) return configured.replace(/\/+$/, '');
+    if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+    return null;
+  }
+
   function resolveCheckoutBaseUrl(merchant) {
+    // Service bindings are private and must never be returned to a browser.
+    // On Vercel, build checkout links from the public deployment origin instead.
+    const publicOrigin = resolvePublicDeploymentOrigin();
+    if (publicOrigin) return publicOrigin;
     if (merchant?.branding) {
       try {
         const urls = resolveRuntimeUrls(merchant.branding);
         if (urls && urls.checkoutUrl) return urls.checkoutUrl;
       } catch {}
     }
-    return ctx.checkoutBaseUrl || 'http://localhost:7000';
+    return ctx.checkoutBaseUrl || resolvePublicDeploymentOrigin() || 'http://localhost:7000';
   }
 
   // POST /api/v1/payments

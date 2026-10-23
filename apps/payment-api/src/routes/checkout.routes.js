@@ -235,8 +235,8 @@ async function checkUpiServerHealth(ctx, enabledMethods = [], sellingMode = 'OFF
 
   if (!smsHealthy) {
     try {
-      const smsPort = Number(process.env.SMS_OBSERVER_PORT || 6002);
-      const res = await fetch(`http://127.0.0.1:${smsPort}/api/browser/status`, {
+      const smsBaseUrl = process.env.SMS_OBSERVER_URL || `http://127.0.0.1:${process.env.SMS_OBSERVER_PORT || 6002}`;
+      const res = await fetch(new URL('/api/browser/status', smsBaseUrl), {
           headers: { 'Authorization': `Bearer ${getObserverToken()}` },
           signal: AbortSignal.timeout(800)
         });
@@ -260,10 +260,10 @@ async function checkUpiServerHealth(ctx, enabledMethods = [], sellingMode = 'OFF
 
     if (hasRefreshToken || hasApiKey) {
       let pollerActive = false;
-      const gmailPort = Number(process.env.GMAIL_OBSERVER_PORT || 6003);
+      const gmailBaseUrl = process.env.GMAIL_OBSERVER_URL || `http://127.0.0.1:${process.env.GMAIL_OBSERVER_PORT || 6003}`;
 
       try {
-        const res = await fetch(`http://127.0.0.1:${gmailPort}/health`, { signal: AbortSignal.timeout(800) });
+        const res = await fetch(new URL('/health', gmailBaseUrl), { signal: AbortSignal.timeout(800) });
         if (res.ok) {
           const data = await res.json();
           if (data.status === 'UP') {
@@ -274,7 +274,7 @@ async function checkUpiServerHealth(ctx, enabledMethods = [], sellingMode = 'OFF
 
       if (!pollerActive) {
         try {
-          const res = await fetch(`http://127.0.0.1:${gmailPort}/api/browser/status`, {
+          const res = await fetch(new URL('/api/browser/status', gmailBaseUrl), {
           headers: { 'Authorization': `Bearer ${getObserverToken()}` },
           signal: AbortSignal.timeout(800)
         });
@@ -308,8 +308,8 @@ async function checkUpiServerHealth(ctx, enabledMethods = [], sellingMode = 'OFF
     } else {
       // Check if browser-based Gmail automator is actively logged in
       try {
-        const gmailPort = Number(process.env.GMAIL_OBSERVER_PORT || 6003);
-        const res = await fetch(`http://127.0.0.1:${gmailPort}/api/browser/status`, {
+        const gmailBaseUrl = process.env.GMAIL_OBSERVER_URL || `http://127.0.0.1:${process.env.GMAIL_OBSERVER_PORT || 6003}`;
+        const res = await fetch(new URL('/api/browser/status', gmailBaseUrl), {
           headers: { 'Authorization': `Bearer ${getObserverToken()}` },
           signal: AbortSignal.timeout(800)
         });

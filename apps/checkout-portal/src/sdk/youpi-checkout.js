@@ -94,7 +94,7 @@
      */
     constructor(options = {}) {
       const defaultPortal = isBrowser
-        ? (scriptConfig.portalUrl || (window.location.protocol + '//' + window.location.hostname + ':7000'))
+        ? (scriptConfig.portalUrl || window.location.origin)
         : 'http://localhost:7000';
 
       const defaultApi = isBrowser

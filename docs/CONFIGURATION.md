@@ -30,6 +30,20 @@
 | `ANDROID_HEARTBEAT_TIMEOUT_MS` | `180000` | Inactivity window before Android device is marked DISCONNECTED |
 | `CHECKOUT_FRAME_ANCESTORS` | unset (any origin in development, `'self'` in production) | Merchant origins (comma or space separated, e.g. `https://shop.example.com`) allowed to embed `/checkout/:id`. The `youpi.js` modal is an iframe, so a store on a different origin than the checkout portal must be listed here or the browser blocks the modal. When unset, any site may frame the checkout page in development, while a production deployment (either `NODE_ENV=production` or `YOUPI_MODE=production`) fences the page to its own origin. Only bare `http(s)` origins are accepted — a path, query, embedded credential or wildcard is ignored, so the value cannot widen the CSP or inject another directive |
 | `YOUPI_ALLOW_PRIVATE_WEBHOOKS` | unset | Set to `true` to permit merchant webhook URLs on loopback/private networks. Required for self-hosted LAN targets; blocked by default as an SSRF guard |
+| `CHECKOUT_PUBLIC_URL` | unset | Optional public origin used by the Vercel Services payment API when it returns checkout links. If unset on Vercel, `VERCEL_URL` is used |
+
+### Vercel Services binding variables
+
+When deployed with the root `vercel.json`, Vercel injects these variables at
+runtime from service bindings. They must not be manually set to hostnames:
+
+| Variable | Injected into | Target service |
+| :--- | :--- | :--- |
+| `PAYMENT_API_URL` | checkout portal, merchant admin, payment help, coin store, Gmail observer, SMS observer | `payment-api` |
+| `CHECKOUT_PORTAL_URL` | payment API, coin store | `checkout-portal` |
+| `CONTROL_CENTER_URL` | merchant admin | `control-center` |
+| `GMAIL_OBSERVER_URL` | payment API | `gmail-observer` |
+| `SMS_OBSERVER_URL` | payment API | `sms-observer` |
 
 ---
 

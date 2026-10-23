@@ -1,0 +1,97 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "checkout-portal": {
+      "root": "apps/checkout-portal",
+      "runtime": "node",
+      "entrypoint": "vercel-entrypoint.js",
+      "bindings": [
+        { "type": "service", "service": "payment-api", "format": "url", "env": "PAYMENT_API_URL" }
+      ]
+    },
+    "coin-wallet-store": {
+      "root": "apps/coin-wallet-store",
+      "runtime": "node",
+      "entrypoint": "vercel-entrypoint.js",
+      "rewrites": [
+        { "source": "/store/:path(.*)", "destination": "/:path" },
+        { "source": "/store", "destination": "/" }
+      ],
+      "bindings": [
+        { "type": "service", "service": "payment-api", "format": "url", "env": "PAYMENT_API_URL" },
+        { "type": "service", "service": "checkout-portal", "format": "url", "env": "CHECKOUT_PORTAL_URL" }
+      ]
+    },
+    "control-center": {
+      "root": "apps/control-center",
+      "runtime": "node",
+      "entrypoint": "vercel-entrypoint.js"
+    },
+    "gmail-observer": {
+      "root": "apps/gmail-observer",
+      "runtime": "node",
+      "entrypoint": "vercel-entrypoint.js",
+      "rewrites": [
+        { "source": "/internal/gmail/:path(.*)", "destination": "/:path" }
+      ],
+      "bindings": [
+        { "type": "service", "service": "payment-api", "format": "url", "env": "PAYMENT_API_URL" }
+      ]
+    },
+    "merchant-admin": {
+      "root": "apps/merchant-admin",
+      "runtime": "node",
+      "entrypoint": "vercel-entrypoint.js",
+      "rewrites": [
+        { "source": "/admin/:path(.*)", "destination": "/:path" },
+        { "source": "/admin", "destination": "/" }
+      ],
+      "bindings": [
+        { "type": "service", "service": "payment-api", "format": "url", "env": "PAYMENT_API_URL" },
+        { "type": "service", "service": "control-center", "format": "url", "env": "CONTROL_CENTER_URL" }
+      ]
+    },
+    "payment-api": {
+      "root": "apps/payment-api",
+      "runtime": "node",
+      "entrypoint": "vercel-entrypoint.js",
+      "bindings": []
+    },
+    "payment-help": {
+      "root": "apps/payment-help",
+      "runtime": "node",
+      "entrypoint": "vercel-entrypoint.js",
+      "rewrites": [
+        { "source": "/help/:path(.*)", "destination": "/:path" },
+        { "source": "/help", "destination": "/" }
+      ],
+      "bindings": [
+        { "type": "service", "service": "payment-api", "format": "url", "env": "PAYMENT_API_URL" }
+      ]
+    },
+    "sms-observer": {
+      "root": "apps/sms-observer",
+      "runtime": "node",
+      "entrypoint": "vercel-entrypoint.js",
+      "rewrites": [
+        { "source": "/internal/sms/:path(.*)", "destination": "/:path" }
+      ],
+      "bindings": [
+        { "type": "service", "service": "payment-api", "format": "url", "env": "PAYMENT_API_URL" }
+      ]
+    }
+  },
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": { "service": "payment-api" } },
+    { "source": "/admin/(.*)", "destination": { "service": "merchant-admin" } },
+    { "source": "/admin", "destination": { "service": "merchant-admin" } },
+    { "source": "/help/(.*)", "destination": { "service": "payment-help" } },
+    { "source": "/help", "destination": { "service": "payment-help" } },
+    { "source": "/store/(.*)", "destination": { "service": "coin-wallet-store" } },
+    { "source": "/store", "destination": { "service": "coin-wallet-store" } },
+    { "source": "/internal/gmail/(.*)", "destination": { "service": "gmail-observer" } },
+    { "source": "/internal/sms/(.*)", "destination": { "service": "sms-observer" } },
+    { "source": "/(.*)", "destination": { "service": "checkout-portal" } }
+  ]
+}
+

@@ -1,4 +1,5 @@
 import http from 'node:http';
+import https from 'node:https';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -62,7 +63,7 @@ export class AdminServer {
    */
   constructor(options = {}) {
     this.db = options.db || getDatabase();
-    this.apiBaseUrl = options.apiBaseUrl || process.env.BASE_PAYMENT_API_URL || 'http://localhost:6100';
+    this.apiBaseUrl = options.apiBaseUrl || process.env.PAYMENT_API_URL || process.env.BASE_PAYMENT_API_URL || 'http://localhost:6100';
     this.merchantRepo = new MerchantRepository(this.db);
     this.ticketRepo = new SupportTicketRepository(this.db);
     this.htmlTemplatePath = path.join(__dirname, 'views', 'admin.html');
@@ -133,15 +134,17 @@ export class AdminServer {
           res.end(JSON.stringify({ error: 'Unauthorized', code: 'AUTH_REQUIRED' }));
           return;
         }
-        const ccPort = Number(process.env.CONTROL_CENTER_PORT || 8090);
-        const forwardHeaders = sanitizedForwardHeaders(req, `localhost:${ccPort}`);
+        const controlCenterUrl = process.env.CONTROL_CENTER_URL || `http://127.0.0.1:${process.env.CONTROL_CENTER_PORT || 8090}`;
+        const targetUrl = new URL(req.url, controlCenterUrl);
+        const requestClient = targetUrl.protocol === 'https:' ? https : http;
+        const forwardHeaders = sanitizedForwardHeaders(req, targetUrl.host);
         if (!forwardHeaders.authorization && !forwardHeaders.Authorization) {
           forwardHeaders.Authorization = `Bearer ${getAdminToken()}`;
         }
-        const proxyReq = http.request({
-          hostname: '127.0.0.1',
-          port: ccPort,
-          path: req.url,
+        const proxyReq = requestClient.request({
+          hostname: targetUrl.hostname,
+          port: targetUrl.port || undefined,
+          path: `${targetUrl.pathname}${targetUrl.search}`,
           method: req.method,
           headers: forwardHeaders
         }, (proxyRes) => {
@@ -163,16 +166,17 @@ export class AdminServer {
 
       // Transparent API Proxy: /api/* -> Payment Core REST API
       if (pathname.startsWith('/api/')) {
-        const targetPort = Number(process.env.PAYMENT_API_PORT || 6100);
+        const targetUrl = new URL(req.url, this.apiBaseUrl);
+        const requestClient = targetUrl.protocol === 'https:' ? https : http;
         const defaultMerchant = this.merchantRepo.getDefault ? this.merchantRepo.getDefault() : (this.merchantRepo.findById('00000000-0000-0000-0000-000000000001') || this.merchantRepo.findAll()[0]);
         const defaultMerchantId = defaultMerchant?.id || '00000000-0000-0000-0000-000000000001';
-        const proxyReq = http.request({
-          hostname: '127.0.0.1',
-          port: targetPort,
-          path: req.url,
+        const proxyReq = requestClient.request({
+          hostname: targetUrl.hostname,
+          port: targetUrl.port || undefined,
+          path: `${targetUrl.pathname}${targetUrl.search}`,
           method: req.method,
           headers: {
-            ...sanitizedForwardHeaders(req, `localhost:${targetPort}`),
+            ...sanitizedForwardHeaders(req, targetUrl.host),
             'x-merchant-id': req.headers['x-merchant-id'] || defaultMerchantId,
             'x-forwarded-host': req.headers.host || '',
             'x-forwarded-proto': req.headers['x-forwarded-proto'] || 'http'
