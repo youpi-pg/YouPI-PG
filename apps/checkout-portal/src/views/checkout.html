@@ -19,11 +19,8 @@
 
     <!-- include:partials/header.html -->
 
-    <!-- 3. SCROLLABLE BODY -->
-    <div class="ypg-body">
-      <!-- include:partials/auth.html -->
-      <!-- include:partials/payment-methods.html -->
-    </div>
+    <!-- include:partials/auth.html -->
+    <!-- include:partials/payment-methods.html -->
 
     <!-- include:partials/footer.html -->
 
@@ -2260,18 +2257,27 @@
     async function loadQrSvg() {
       const container = document.getElementById('qrImageContainer');
       if (!container) return;
-      try {
-        const res = await fetch(`/checkout/${PAYMENT_ID}/qr.svg`);
-        if (res.ok) {
-          const svg = await res.text();
-          if (svg && svg.includes('<svg')) {
-            container.innerHTML = svg;
-            return;
-          }
-        }
-      } catch (e) {
-        console.warn('loadQrSvg error:', e);
+
+      const candidates = [`/checkout/${PAYMENT_ID}/qr.svg`];
+      if (API_BASE && typeof API_BASE === 'string' && API_BASE.startsWith('http')) {
+        candidates.push(`${API_BASE}/checkout/${PAYMENT_ID}/qr.svg`);
       }
+
+      for (const targetUrl of candidates) {
+        try {
+          const res = await fetch(targetUrl);
+          if (res.ok) {
+            const svg = await res.text();
+            if (svg && svg.includes('<svg')) {
+              container.innerHTML = svg;
+              return;
+            }
+          }
+        } catch (e) {
+          console.warn('loadQrSvg error from:', targetUrl, e);
+        }
+      }
+
       // Automatic retry to guarantee QR code is loaded
       setTimeout(async () => {
         try {
@@ -2284,6 +2290,57 @@
           }
         } catch (e) {}
       }, 400);
+    }
+
+    function sanitizeUpiUri(raw) {
+      if (typeof raw !== 'string') return null;
+      const trimmed = raw.trim();
+      if (!trimmed.toLowerCase().startsWith('upi://pay?')) return null;
+      // Allow only valid URI characters for upi:// scheme to prevent injection
+      if (!/^upi:\/\/pay\?[a-zA-Z0-9_\-\.\=\&\%\+\:\@\/]*$/i.test(trimmed)) return null;
+      return trimmed;
+    }
+
+    function getUpiIntentUri() {
+      if (state && typeof state.upiUri === 'string') {
+        const sanitized = sanitizeUpiUri(state.upiUri);
+        if (sanitized) return sanitized;
+      }
+      const vpa = encodeURIComponent(String(state?.payeeVpa || state?.vpa || 'merchant@upi').trim());
+      const name = encodeURIComponent(String(state?.merchantName || 'Store').trim());
+      const amt = encodeURIComponent(String(state?.amount || '10.00').trim());
+      const tid = encodeURIComponent(String(PAYMENT_ID || '').trim());
+      return sanitizeUpiUri(`upi://pay?pa=${vpa}&pn=${name}&am=${amt}&tn=${tid}`);
+    }
+
+    function handleOpenUpiIntent() {
+      const uri = getUpiIntentUri();
+      if (!uri) return;
+      try {
+        window.location.assign(uri);
+      } catch (err) {
+        console.warn('Could not launch UPI intent:', err);
+      }
+    }
+
+    function handleUpiAppClick(appName) {
+      const isMobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (window.innerWidth <= 767);
+      if (isMobileDevice) {
+        handleOpenUpiIntent();
+        return;
+      }
+      // On desktop (macOS / Windows / Linux), copy VPA and show informative toast
+      const vpa = (state?.payeeVpa || state?.vpa || '').trim();
+      if (vpa) {
+        try {
+          navigator.clipboard.writeText(vpa);
+          showOptionToast(`Copied UPI ID (${vpa})! Open ${appName} on your phone to complete payment.`);
+        } catch {
+          showOptionToast(`Scan QR with ${appName} on your phone to pay ₹${state?.amount || ''}`);
+        }
+      } else {
+        showOptionToast(`Scan QR with ${appName} on your phone to pay ₹${state?.amount || ''}`);
+      }
     }
 
     function copyVpaId() {

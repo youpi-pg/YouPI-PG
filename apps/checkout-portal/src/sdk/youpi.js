@@ -742,10 +742,14 @@
             border-top-left-radius: 20px !important;
             border-top-right-radius: 20px !important;
             margin: 0 !important;
-            transform: translateY(0) !important;
+            transform: translateY(100%) !important;
+            transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
             box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.6) !important;
             touch-action: auto !important;
             overflow: hidden !important;
+          }
+          .youpi-checkout-container.active {
+            transform: translateY(0) !important;
           }
           .youpi-checkout-container.closing {
             transform: translateY(100%) !important;

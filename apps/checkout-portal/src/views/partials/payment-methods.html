@@ -150,18 +150,18 @@
                     <!-- Brand Logos Row (Zero Fake Offers) -->
                     <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:3px 0 6px 0;">
                       <div class="ypg-upi-logos-row">
-                        <div class="ypg-app-icon" title="Google Pay"><img src="/icons/gpay.png"
+                        <div class="ypg-app-icon" title="Google Pay" role="button" tabindex="0" onclick="handleUpiAppClick('Google Pay')"><img src="/icons/gpay.png"
                             onerror="if(window.FALLBACK_ICONS)this.src=window.FALLBACK_ICONS.gpay" alt="GPay" /></div>
-                        <div class="ypg-app-icon" title="PhonePe"><img src="/icons/phonepe.png"
+                        <div class="ypg-app-icon" title="PhonePe" role="button" tabindex="0" onclick="handleUpiAppClick('PhonePe')"><img src="/icons/phonepe.png"
                             onerror="if(window.FALLBACK_ICONS)this.src=window.FALLBACK_ICONS.phonepe" alt="PhonePe" />
                         </div>
-                        <div class="ypg-app-icon" title="Paytm"><img src="/icons/paytm.png"
+                        <div class="ypg-app-icon" title="Paytm" role="button" tabindex="0" onclick="handleUpiAppClick('Paytm')"><img src="/icons/paytm.png"
                             onerror="if(window.FALLBACK_ICONS)this.src=window.FALLBACK_ICONS.paytm" alt="Paytm" /></div>
-                        <div class="ypg-app-icon" title="CRED"><img src="/icons/cred.png"
+                        <div class="ypg-app-icon" title="CRED" role="button" tabindex="0" onclick="handleUpiAppClick('CRED')"><img src="/icons/cred.png"
                             onerror="if(window.FALLBACK_ICONS)this.src=window.FALLBACK_ICONS.cred" alt="CRED" /></div>
-                        <div class="ypg-app-icon" title="BHIM UPI"><img src="/icons/bhim.png"
+                        <div class="ypg-app-icon" title="BHIM UPI" role="button" tabindex="0" onclick="handleUpiAppClick('BHIM UPI')"><img src="/icons/bhim.png"
                             onerror="if(window.FALLBACK_ICONS)this.src=window.FALLBACK_ICONS.bhim" alt="BHIM" /></div>
-                        <div class="ypg-app-icon" title="Amazon Pay"><img src="/icons/amazonpay.png"
+                        <div class="ypg-app-icon" title="Amazon Pay" role="button" tabindex="0" onclick="handleUpiAppClick('Amazon Pay')"><img src="/icons/amazonpay.png"
                             onerror="if(window.FALLBACK_ICONS)this.src=window.FALLBACK_ICONS.amazonpay"
                             alt="Amazon Pay" /></div>
                       </div>
@@ -170,6 +170,12 @@
                     <div style="font-size:12px; color:#64748b; line-height:1.4;">
                       Open any UPI app on your phone to scan and pay directly.
                     </div>
+
+                    <!-- 1-Tap Mobile UPI Intent Launcher (Shown on Mobile, Hidden on PC) -->
+                    <button type="button" class="ypg-btn-upi-mobile-intent" id="btnMobileUpiIntent" onclick="handleOpenUpiIntent()">
+                      <img src="/icons/upi.svg" alt="UPI" style="height:14px; filter:brightness(0) invert(1);" />
+                      <span>Pay via Any UPI App</span>
+                    </button>
                   </div>
                 </div>
                 <!-- UPI Payment Instructions Guide -->

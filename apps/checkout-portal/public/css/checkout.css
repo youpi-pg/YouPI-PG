@@ -562,14 +562,26 @@
     }
 
     .ypg-app-icon {
-      width: 22px;
-      height: 22px;
+      width: 24px;
+      height: 24px;
       border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
       flex-shrink: 0;
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+      user-select: none;
+    }
+
+    .ypg-app-icon:hover {
+      transform: scale(1.18);
+      box-shadow: 0 3px 8px rgba(0, 0, 0, 0.22);
+    }
+
+    .ypg-app-icon:active {
+      transform: scale(0.92);
     }
 
     .ypg-app-icon img,
@@ -577,6 +589,11 @@
       width: 100%;
       height: 100%;
       border-radius: 50%;
+      pointer-events: none;
+    }
+
+    .ypg-btn-upi-mobile-intent {
+      display: none;
     }
 
     .ypg-green-pill-badge {
@@ -2489,13 +2506,12 @@
       /* PC Body Container - Bounded to viewport height */
       .ypg-body {
         flex: 1 !important;
-        height: calc(100% - 48px) !important;
-        max-height: calc(100% - 48px) !important;
+        height: auto !important;
+        min-height: 0 !important;
         display: flex !important;
         flex-direction: column !important;
         padding: 0 !important;
         overflow: hidden !important;
-        min-height: 0 !important;
       }
 
       #paymentGatewayInterface:not([hidden]) {
@@ -2689,6 +2705,27 @@
         box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4) !important;
         animation: rzpModalPop 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
       }
+
+      /* Desktop Sticky Footer (Pinned firmly at the bottom of workspace) */
+      .ypg-sticky-footer {
+        margin-top: auto !important;
+        background: #ffffff !important;
+        border-top: 1px solid #f1f5f9 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        flex-shrink: 0 !important;
+        position: relative !important;
+        z-index: 20 !important;
+        width: 100% !important;
+      }
+
+      .ypg-legal-disclaimer {
+        font-size: 11px !important;
+        color: #64748b !important;
+        text-align: center !important;
+        padding: 8px 16px !important;
+        line-height: 1.4 !important;
+      }
     }
 
     /* MOBILE SPECIFIC RULES - PINNED HEADER WITH CONTENT SCROLLING BEHIND IT */
@@ -2829,6 +2866,30 @@
       .mob-only-sub,
       .mob-only-btn {
         display: inline !important;
+      }
+
+      .ypg-btn-upi-mobile-intent {
+        display: flex !important;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        width: 100%;
+        padding: 12px 16px;
+        background: var(--ypg-blue, #0b63e5);
+        color: #ffffff;
+        border: none;
+        border-radius: 10px;
+        font-weight: 700;
+        font-size: 14px;
+        cursor: pointer;
+        margin-top: 10px;
+        box-shadow: 0 4px 14px rgba(11, 99, 229, 0.28);
+        transition: transform 0.15s ease, filter 0.15s ease;
+      }
+
+      .ypg-btn-upi-mobile-intent:active {
+        transform: scale(0.98);
+        filter: brightness(0.92);
       }
     }
 

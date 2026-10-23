@@ -163,20 +163,28 @@ describe('Checkout Portal Integration Tests', () => {
       assert.ok(res.text.includes('id="serverStatusLabel"'));
       assert.ok(res.text.includes('id="serverDowntimeAlert"'));
 
-      // Verify Play Store icons are referenced
+      // Verify Play Store icons are referenced and interactive
       assert.ok(res.text.includes('/icons/gpay.png'));
       assert.ok(res.text.includes('/icons/phonepe.png'));
       assert.ok(res.text.includes('/icons/paytm.png'));
+      assert.ok(res.text.includes('handleUpiAppClick'));
+      assert.ok(res.text.includes('id="btnMobileUpiIntent"'));
+
+      // DOM hierarchy invariant: No redundant nested <div class="ypg-body">
+      assert.equal(res.text.includes('<div class="ypg-body">'), false);
+      assert.ok(res.text.includes('<main class="ypg-body">'));
 
       // INVARIANT: Raw Payee VPA / UPI ID row is REMOVED from Order Summary
       assert.equal(res.text.includes('id="drawerVpa"'), false);
     });
 
-    test('GET /css/checkout.css returns the static stylesheet with CORS', async () => {
+    test('GET /css/checkout.css returns the static stylesheet with CORS and responsive modal rules', async () => {
       const resCss = await get('/css/checkout.css');
       assert.equal(resCss.status, 200);
       assert.ok(resCss.headers['content-type'].includes('text/css'));
       assert.ok(resCss.text.includes('.ypg-wrapper'));
+      assert.ok(resCss.text.includes('.ypg-btn-upi-mobile-intent'));
+      assert.ok(resCss.text.includes('.ypg-sticky-footer'));
     });
 
     test('the checkout page loads exactly one copy of the client script', async () => {
