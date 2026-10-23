@@ -1,13 +1,14 @@
 # Installation & Host Environment Setup Guide
 
 ## 1. Operating Environment
+
 YOUPI PG is distributed as source code and is engineered to run directly as native host processes on standard Linux (Ubuntu, Debian, RHEL, CentOS) and Windows 10/11 environments.
 
 **Zero Docker Requirement:** Docker, Docker Compose, and external container engines are completely optional and not required. Standard `npm install` works out-of-the-box across all workspace packages.
 
 ### Prerequisites
-- **Node.js:** v22.13.0 or higher (v24 LTS recommended) for native `node:sqlite` (`DatabaseSync`)
-  (22.5.0–22.12.x cannot run this project: `node:sqlite` is unflagged only from 22.13.0)
+
+- **Node.js:** v24.22.1 Active LTS ("Krypton") or higher (verify with `node -v`) for native `node:sqlite` (`DatabaseSync` Release Candidate with defensive mode) and essential protection against October 2026 security CVEs (CVE-2026-111497, CVE-2026-105482, CVE-2026-105483).
 - **Database:** Built-in zero-dependency SQLite WAL with automatic schema provisioning (or optional PostgreSQL v14+)
 - **Java/JDK (Optional, for Android APK build):** OpenJDK 17+
 - **Docker & Docker Compose (Optional):** For containerized zero-setup execution
@@ -67,7 +68,7 @@ npm start
 ## 4. Windows 10 / 11 Setup
 
 ```powershell
-# 1. Verify Node.js (>= v20.0.0)
+# 1. Verify Node.js (>= v24.22.1 LTS)
 node -v
 
 # 2. Install dependencies
