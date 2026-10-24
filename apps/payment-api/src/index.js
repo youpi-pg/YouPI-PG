@@ -411,12 +411,14 @@ export function createPaymentApp(customDb = null, options = {}) {
 }
 
 export function startServer(port = null, customDb = null) {
-  const finalPort = port || Number(process.env.PAYMENT_API_PORT || 6100);
+  const finalPort = port ?? Number(
+  process.env.PORT || process.env.PAYMENT_API_PORT || 6100
+  );
   const app = createPaymentApp(customDb);
 
   return new Promise(resolve => {
     // Loopback by default; reach this service via the local Cloudflare Tunnel, not 0.0.0.0.
-    const bindHost = process.env.YOUPI_BIND_HOST || '127.0.0.1';
+    const bindHost = process.env.YOUPI_BIND_HOST || (process.env.RENDER ? '0.0.0.0' : '127.0.0.1');
     const instance = app.rawServer.listen(finalPort, bindHost, () => {
       console.log(`[Payment API] Server listening on port ${finalPort}`);
       resolve({

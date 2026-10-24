@@ -32,5 +32,10 @@
     "node": ">=24.0.0"
   },
   "author": "Antigravity Systems",
-  "license": "Commercial"
+  "license": "Commercial",
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true,
+    "protobufjs@8.8.1": true,
+    "protobufjs@7.6.6": true
+  }
 }
