@@ -9,10 +9,13 @@ export function hashApiKey(rawKey) {
 /** Gmail OAuth credentials are nested inside `branding.gmailConfig`; encrypt just those. */
 const GMAIL_SECRET_FIELDS = ['clientSecret', 'refreshToken', 'apiKey'];
 
-/** Serializes branding, encrypting any nested Gmail OAuth secrets. */
+/** Serializes branding, encrypting any nested Gmail OAuth secrets and merchantApiKey. */
 function serializeBranding(branding) {
   if (!branding || typeof branding !== 'object') return branding || '{"primaryColor":"#2563eb","appName":"YOUPI PG","logoUrl":null}';
   const copy = { ...branding };
+  if (copy.merchantApiKey && typeof copy.merchantApiKey === 'string') {
+    copy.merchantApiKey = encryptAtRest(copy.merchantApiKey);
+  }
   const gmail = copy.gmailConfig;
   if (gmail && typeof gmail === 'object') {
     const enc = { ...gmail };
@@ -27,6 +30,9 @@ function serializeBranding(branding) {
 /** Reverses serializeBranding. Plaintext values written earlier pass through unchanged. */
 function deserializeBranding(raw) {
   const branding = JSON.parse(raw || '{}');
+  if (branding.merchantApiKey && typeof branding.merchantApiKey === 'string') {
+    branding.merchantApiKey = decryptAtRest(branding.merchantApiKey);
+  }
   const gmail = branding.gmailConfig;
   if (gmail && typeof gmail === 'object') {
     const dec = { ...gmail };
@@ -170,13 +176,39 @@ export class MerchantRepository {
     if (merchant.apiKeyHash && safeEqual(hashApiKey(clean), merchant.apiKeyHash)) {
       return true;
     }
+    if (merchant.branding?.merchantApiKey && safeEqual(clean, merchant.branding.merchantApiKey)) {
+      return true;
+    }
     if (merchant.webhookSecret && safeEqual(clean, merchant.webhookSecret)) {
       return true;
     }
     return false;
   }
 
+  /**
+   * Generates and persists a new Merchant API Key (`mk_live_<48_hex_chars>`) for the merchant.
+   */
+  rotateApiKey(id) {
+    const merchant = this.findById(id);
+    if (!merchant) return null;
+    const newApiKey = `mk_live_${crypto.randomBytes(24).toString('hex')}`;
+    const updatedBranding = {
+      ...(merchant.branding || {}),
+      merchantApiKey: newApiKey
+    };
+    const updated = this.update(id, {
+      apiKey: newApiKey,
+      branding: updatedBranding
+    });
+    return {
+      ...updated,
+      merchantKey: newApiKey
+    };
+  }
+
   mapRow(row) {
+    const webhookSecret = decryptAtRest(row.webhook_secret);
+    const branding = deserializeBranding(row.branding);
     return {
       id: row.id,
       businessName: row.business_name,
@@ -185,9 +217,10 @@ export class MerchantRepository {
       contactPhone: row.contact_phone,
       webhookUrl: row.webhook_url,
       // Plaintext rows written before encryption existed decrypt to themselves.
-      webhookSecret: decryptAtRest(row.webhook_secret),
+      webhookSecret,
+      merchantKey: branding?.merchantApiKey || webhookSecret || '',
       apiKeyHash: row.api_key_hash || null,
-      branding: deserializeBranding(row.branding),
+      branding,
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at)
     };

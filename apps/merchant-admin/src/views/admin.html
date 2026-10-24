@@ -2938,13 +2938,36 @@
         <div class="card">
           <div class="card-header">
             <div>
-              <div class="card-heading">⚡ Webhook Endpoints &amp; Cryptographic Secrets</div>
-              <div class="card-subtext">Configure where real-time signed payment status events are dispatched via
-                HMAC-SHA256.</div>
+              <div class="card-heading">🔑 Merchant API Keys, Webhook Endpoints &amp; Cryptographic Secrets</div>
+              <div class="card-subtext">View, copy, or rotate your Publishable Merchant ID (<code>data-youpi-key</code> / <code>X-Merchant-Id</code>), Secret Merchant API Key (<code>X-Merchant-Key</code>), and HMAC-SHA256 Webhook Signing Secret.</div>
             </div>
           </div>
 
           <div style="display:flex; flex-direction:column; gap:1.25rem;">
+            <div>
+              <label style="display:block; font-size:0.82rem; font-weight:700; margin-bottom:0.35rem;">Merchant ID / Publishable Key (<code>data-youpi-key</code> &amp; <code>X-Merchant-Id</code>)</label>
+              <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+                <input id="settingMerchantId" type="text" readonly
+                  style="flex:1; min-width:260px; color:#38bdf8; font-family:monospace; font-weight:600;" />
+                <button type="button" class="btn btn-secondary" onclick="copyFieldValue('settingMerchantId', 'Publishable Merchant ID')"
+                  style="padding:0.55rem 0.9rem; font-size:0.8rem;">📋 Copy</button>
+              </div>
+              <span style="font-size:0.72rem; color:var(--text-muted); display:block; margin-top:0.25rem;">Safe to embed in frontend HTML (<code>&lt;script src=".../youpi.js" data-youpi-key="..."&gt;</code>) and pass as <code>X-Merchant-Id</code> in REST API calls.</span>
+            </div>
+
+            <div>
+              <label style="display:block; font-size:0.82rem; font-weight:700; margin-bottom:0.35rem;">Secret Merchant API Key (<code>X-Merchant-Key</code>)</label>
+              <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+                <input id="settingMerchantApiKey" type="text" readonly
+                  style="flex:1; min-width:260px; color:#34d399; font-family:monospace; font-weight:600;" />
+                <button type="button" class="btn btn-secondary" onclick="copyFieldValue('settingMerchantApiKey', 'Merchant API Key')"
+                  style="padding:0.55rem 0.9rem; font-size:0.8rem;">📋 Copy</button>
+                <button type="button" class="btn btn-secondary" onclick="rotateMerchantApiKey()"
+                  style="padding:0.55rem 0.9rem; font-size:0.8rem; border-color:#38bdf8; color:#38bdf8;">🔄 Generate / Rotate Key</button>
+              </div>
+              <span style="font-size:0.72rem; color:var(--text-muted); display:block; margin-top:0.25rem;">Backend-only secret key used to authenticate server-to-server payment creation and status queries via the <code>X-Merchant-Key</code> header.</span>
+            </div>
+
             <div>
               <label style="display:block; font-size:0.82rem; font-weight:700; margin-bottom:0.35rem;">Webhook
                 Destination URL</label>
@@ -2957,8 +2980,15 @@
             <div>
               <label style="display:block; font-size:0.82rem; font-weight:700; margin-bottom:0.35rem;">Webhook Secret
                 (HMAC-SHA256 Signing)</label>
-              <input id="settingWebhookSecret" type="text" readonly
-                style="width:100%; color:#94a3b8; font-family:monospace;" />
+              <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+                <input id="settingWebhookSecret" type="text" readonly
+                  style="flex:1; min-width:260px; color:#94a3b8; font-family:monospace;" />
+                <button type="button" class="btn btn-secondary" onclick="copyFieldValue('settingWebhookSecret', 'Webhook Secret')"
+                  style="padding:0.55rem 0.9rem; font-size:0.8rem;">📋 Copy</button>
+                <button type="button" class="btn btn-secondary" onclick="rotateWebhookSecret()"
+                  style="padding:0.55rem 0.9rem; font-size:0.8rem;">🔄 Rotate Secret</button>
+              </div>
+              <span style="font-size:0.72rem; color:var(--text-muted); display:block; margin-top:0.25rem;">Used to verify <code>X-Gateway-Signature</code> on incoming server-to-server webhooks. Keep strictly on your backend.</span>
             </div>
 
             <button class="btn btn-primary" style="width:auto; align-self:flex-start;"
@@ -4801,6 +4831,8 @@
             if (el) el.checked = Boolean(checked);
           };
 
+          setVal('settingMerchantId', mData.publishableKey || mData.merchantId || currentMerchantId);
+          setVal('settingMerchantApiKey', mData.merchantKey || branding.merchantApiKey || mData.webhookSecret || '');
           setVal('settingBusinessName', mData.businessName);
           setVal('settingWebhookUrl', mData.webhookUrl);
           setVal('settingWebhookSecret', mData.webhookSecret);
@@ -5081,6 +5113,74 @@
         }
       } catch (e) {
         showAdminToast('Network error saving merchant settings.', false);
+      }
+    }
+
+    function copyFieldValue(inputId, label) {
+      const el = document.getElementById(inputId);
+      const val = el ? el.value.trim() : '';
+      if (!val) {
+        showAdminToast(`No ${label || 'value'} available to copy.`, false);
+        return;
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(val).then(() => {
+          showAdminToast(`${label || 'Value'} copied to clipboard!`);
+        }).catch(() => {
+          el.select();
+          document.execCommand('copy');
+          showAdminToast(`${label || 'Value'} copied to clipboard!`);
+        });
+      } else {
+        el.select();
+        document.execCommand('copy');
+        showAdminToast(`${label || 'Value'} copied to clipboard!`);
+      }
+    }
+
+    async function rotateMerchantApiKey() {
+      if (!confirm('Generate a new Secret Merchant API Key (X-Merchant-Key)? Any backend scripts using the previous key will need to be updated.')) {
+        return;
+      }
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/admin/merchant-key/rotate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ merchantId: currentMerchantId || '00000000-0000-0000-0000-000000000001' })
+        });
+        const data = await res.json();
+        if (res.ok && data.merchantKey) {
+          const el = document.getElementById('settingMerchantApiKey');
+          if (el) el.value = data.merchantKey;
+          showAdminToast('New Secret Merchant API Key generated!');
+        } else {
+          showAdminToast(data.error || 'Failed to rotate Merchant API Key', false);
+        }
+      } catch (e) {
+        showAdminToast('Network error rotating Merchant API Key.', false);
+      }
+    }
+
+    async function rotateWebhookSecret() {
+      if (!confirm('Rotate the Webhook HMAC Signing Secret? Make sure to update YOUPI_WEBHOOK_SECRET on your backend server.')) {
+        return;
+      }
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/admin/webhook-secret/rotate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ merchantId: currentMerchantId || '00000000-0000-0000-0000-000000000001' })
+        });
+        const data = await res.json();
+        if (res.ok && data.webhookSecret) {
+          const el = document.getElementById('settingWebhookSecret');
+          if (el) el.value = data.webhookSecret;
+          showAdminToast('New Webhook Secret generated!');
+        } else {
+          showAdminToast(data.error || 'Failed to rotate Webhook Secret', false);
+        }
+      } catch (e) {
+        showAdminToast('Network error rotating Webhook Secret.', false);
       }
     }
 

@@ -660,6 +660,8 @@ export function registerAdminRoutes(server, ctx) {
 
     HttpServer.json(res, 200, {
       merchantId: merchant.id,
+      publishableKey: merchant.id,
+      merchantKey: merchant.merchantKey || branding.merchantApiKey || merchant.webhookSecret || '',
       businessName: merchant.businessName,
       upiId: account ? account.upiId : '',
       payeeName: account ? account.payeeName : merchant.businessName,
@@ -862,6 +864,8 @@ export function registerAdminRoutes(server, ctx) {
 
     HttpServer.json(res, 200, {
       merchantId: merchant.id,
+      publishableKey: merchant.id,
+      merchantKey: merchant.merchantKey || branding.merchantApiKey || merchant.webhookSecret || '',
       businessName: merchant.businessName,
       contactEmail: merchant.contactEmail,
       contactPhone: merchant.contactPhone,
@@ -1049,6 +1053,8 @@ export function registerAdminRoutes(server, ctx) {
     HttpServer.json(res, 200, {
       success: true,
       merchantId: updated.id,
+      publishableKey: updated.id,
+      merchantKey: updated.merchantKey || updated.branding?.merchantApiKey || updated.webhookSecret || '',
       businessName: updated.businessName,
       webhookUrl: updated.webhookUrl || '',
       webhookSecret: updated.webhookSecret || '',
@@ -1067,6 +1073,75 @@ export function registerAdminRoutes(server, ctx) {
       cloudflareTunnelCommand: updated.branding?.cloudflareTunnelCommand || '',
       tunnelStatus: globalTunnelManager.getStatus(),
       branding: updated.branding
+    });
+  });
+
+  // POST /api/v1/admin/merchant-key/rotate (Generate / Rotate Secret Merchant API Key)
+  server.post('/api/v1/admin/merchant-key/rotate', async (req, res) => {
+    const body = await HttpServer.parseBody(req).catch(() => ({}));
+    const merchant = resolveMerchant(req, body.merchantId);
+    if (!merchant) {
+      HttpServer.json(res, 404, { error: 'Merchant not found' });
+      return;
+    }
+
+    const rotated = typeof ctx.merchantRepo.rotateApiKey === 'function'
+      ? ctx.merchantRepo.rotateApiKey(merchant.id)
+      : (() => {
+        const newKey = `mk_live_${crypto.randomBytes(24).toString('hex')}`;
+        const updated = ctx.merchantRepo.update(merchant.id, {
+          apiKey: newKey,
+          branding: { ...(merchant.branding || {}), merchantApiKey: newKey }
+        });
+        return { ...updated, merchantKey: newKey };
+      })();
+
+    ctx.auditRepo.log({
+      merchantId: merchant.id,
+      entityType: 'MERCHANT',
+      entityId: merchant.id,
+      action: 'MERCHANT_API_KEY_ROTATED',
+      actorType: AuditActorType.ADMIN,
+      details: { merchantId: merchant.id }
+    });
+
+    HttpServer.json(res, 200, {
+      success: true,
+      merchantId: rotated.id,
+      publishableKey: rotated.id,
+      merchantKey: rotated.merchantKey
+    });
+  });
+
+  // POST /api/v1/admin/webhook-secret/rotate (Generate / Rotate Webhook HMAC Signing Secret)
+  server.post('/api/v1/admin/webhook-secret/rotate', async (req, res) => {
+    const body = await HttpServer.parseBody(req).catch(() => ({}));
+    const merchant = resolveMerchant(req, body.merchantId);
+    if (!merchant) {
+      HttpServer.json(res, 404, { error: 'Merchant not found' });
+      return;
+    }
+
+    const newWebhookSecret = `whsec_${crypto.randomBytes(24).toString('hex')}`;
+    const existingApiKey = merchant.branding?.merchantApiKey;
+    const updated = ctx.merchantRepo.update(merchant.id, {
+      webhookSecret: newWebhookSecret,
+      ...(existingApiKey ? { apiKey: existingApiKey } : {})
+    });
+
+    ctx.auditRepo.log({
+      merchantId: merchant.id,
+      entityType: 'MERCHANT',
+      entityId: merchant.id,
+      action: 'MERCHANT_WEBHOOK_SECRET_ROTATED',
+      actorType: AuditActorType.ADMIN,
+      details: { merchantId: merchant.id }
+    });
+
+    HttpServer.json(res, 200, {
+      success: true,
+      merchantId: updated.id,
+      webhookSecret: updated.webhookSecret
     });
   });
 

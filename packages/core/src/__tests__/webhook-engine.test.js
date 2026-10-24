@@ -1,6 +1,10 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
 import '../../../../scripts/test-support.js';
 import { Database, runMigrations, MerchantRepository, PaymentSessionRepository, ObservationRepository } from '@youpi/db';
 import { WebhookEngine } from '../webhook-engine.js';
@@ -283,5 +287,168 @@ describe('Webhook Engine Integration Tests', () => {
     assert.equal(recorded.is_successful, 0);
     assert.equal(recorded.response_status, 500);
     assert.match(recorded.response_body, /webhookSecret is not configured/);
+  });
+
+  test('survives SIGKILL mid-first-delivery and delivers webhook on restart (Issue #86)', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'youpi-wh-crash-'));
+    const dbPath = path.join(tmpDir, 'crash-test.db');
+
+    let acceptRequests = false;
+    let firstAttemptSeenResolve;
+    const firstAttemptSeen = new Promise(resolve => { firstAttemptSeenResolve = resolve; });
+    const deliveredPayloads = [];
+
+    const hangServer = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+        if (!acceptRequests) {
+          // Signal that the first delivery request reached the server, then hang so child can be SIGKILLed
+          firstAttemptSeenResolve();
+          return;
+        }
+        deliveredPayloads.push({
+          headers: req.headers,
+          body: JSON.parse(body || '{}')
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ received: true }));
+      });
+    });
+
+    const hangPort = await new Promise(resolve => {
+      hangServer.listen(0, '127.0.0.1', () => resolve(hangServer.address().port));
+    });
+
+    try {
+      // Spawn a child process that creates a terminal payment session and calls dispatch(),
+      // which will hang waiting for hangServer while we SIGKILL the child process.
+      const childScript = `
+        import './scripts/test-support.js';
+        import { Database, runMigrations, MerchantRepository, PaymentSessionRepository } from '@youpi/db';
+        import { WebhookEngine } from '@youpi/core';
+
+        const db = new Database({ dbPath: process.env.CRASH_DB_PATH });
+        runMigrations(db);
+        const merchantRepo = new MerchantRepository(db);
+        const sessionRepo = new PaymentSessionRepository(db);
+        const webhookEngine = new WebhookEngine({ db, merchantRepo, maxRetries: 3 });
+
+        const merchant = merchantRepo.create({
+          businessName: 'Crash Test Store',
+          slug: 'crash-test-store',
+          contactEmail: 'crash@example.com',
+          contactPhone: '9876543210',
+          webhookUrl: process.env.CRASH_WEBHOOK_URL,
+          webhookSecret: 'crash_secret_key_123456'
+        });
+
+        const session = sessionRepo.create({
+          merchantId: merchant.id,
+          orderId: 'HOOK-ORD-SIGKILL-86',
+          amountPaise: 49900n
+        });
+        sessionRepo.transitionToTerminal(session.id, 'SUCCESS');
+        const updatedSession = sessionRepo.findById(session.id);
+
+        await webhookEngine.dispatch('SUCCESS', updatedSession);
+      `;
+
+      const child = spawn(process.execPath, ['--input-type=module', '-e', childScript], {
+        cwd: path.resolve(import.meta.dirname, '../../../..'),
+        env: {
+          ...process.env,
+          CRASH_DB_PATH: dbPath,
+          CRASH_WEBHOOK_URL: `http://localhost:${hangPort}/webhook-crash`
+        },
+        stdio: 'ignore'
+      });
+
+      // Wait until the first HTTP delivery request is in-flight at hangServer
+      await firstAttemptSeen;
+
+      // Kill the child process with SIGKILL while the first webhook delivery is in flight
+      child.kill('SIGKILL');
+      await new Promise(resolve => child.once('exit', resolve));
+
+      // Now open the SQLite DB in the parent (simulating API restart)
+      const restartedDb = new Database({ dbPath });
+      const restartedMerchantRepo = new MerchantRepository(restartedDb);
+      const restartedWebhookEngine = new WebhookEngine({
+        db: restartedDb,
+        merchantRepo: restartedMerchantRepo,
+        maxRetries: 3
+      });
+
+      // Verify the write-ahead webhook_deliveries row was persisted before fetch()
+      const preRow = restartedDb.queryOne(
+        "SELECT * FROM webhook_deliveries WHERE json_extract(payload, '$.orderId') = 'HOOK-ORD-SIGKILL-86'"
+      );
+      assert.ok(preRow, 'webhook_deliveries row must exist even when process crashed mid-first-delivery');
+      assert.equal(preRow.is_successful, 0);
+      assert.equal(preRow.attempt_count, 0);
+
+      // Run startup recovery to reset in-flight leases and backfill any missing rows
+      const recovered = restartedWebhookEngine.recoverMissingDeliveries({ resetInFlight: true });
+      assert.ok(recovered >= 1, 'recoverMissingDeliveries should reset the interrupted in-flight row');
+
+      // Allow receiver to respond 200 OK and run retryPending()
+      acceptRequests = true;
+      const retryOutcome = await restartedWebhookEngine.retryPending();
+      assert.equal(retryOutcome.length, 1);
+      assert.equal(retryOutcome[0].success, true);
+
+      assert.equal(deliveredPayloads.length, 1);
+      assert.equal(deliveredPayloads[0].body.orderId, 'HOOK-ORD-SIGKILL-86');
+      assert.equal(deliveredPayloads[0].body.event, 'SUCCESS');
+
+      const postRow = restartedDb.queryOne('SELECT * FROM webhook_deliveries WHERE id = ?', [preRow.id]);
+      assert.equal(postRow.is_successful, 1);
+      assert.equal(postRow.response_status, 200);
+
+      restartedDb.close();
+    } finally {
+      await new Promise(cb => hangServer.close(cb));
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test('backfills and delivers webhook if process crashed between transitionToTerminal and dispatch (Issue #86)', async () => {
+    const merchant = merchantRepo.create({
+      businessName: 'Orphan Terminal Store',
+      slug: 'orphan-terminal-store',
+      contactEmail: 'orphan@example.com',
+      contactPhone: '9876543210',
+      webhookUrl: `http://localhost:${receiverPort}/webhook-orphan`,
+      webhookSecret: 'orphan_secret_key_123456'
+    });
+
+    const session = sessionRepo.create({
+      merchantId: merchant.id,
+      orderId: 'HOOK-ORD-ORPHAN-86',
+      amountPaise: 35000n
+    });
+    // Transition session to terminal state WITHOUT calling webhookEngine.dispatch()
+    // (simulating crash right after DB commit of terminal state before event listener ran)
+    sessionRepo.transitionToTerminal(session.id, 'SUCCESS');
+
+    const beforeRow = db.queryOne('SELECT * FROM webhook_deliveries WHERE payment_id = ?', [session.id]);
+    assert.equal(beforeRow, null);
+
+    receivedWebhooks = [];
+    shouldReceiverFail = false;
+
+    const retryResults = await webhookEngine.retryPending();
+    const matching = retryResults.find(r => {
+      const row = db.queryOne('SELECT payment_id FROM webhook_deliveries WHERE id = ?', [r.id]);
+      return row && row.payment_id === session.id;
+    });
+    assert.ok(matching, 'retryPending should backfill and deliver the missing terminal webhook');
+    assert.equal(matching.success, true);
+
+    const hook = receivedWebhooks.find(h => h.body.orderId === 'HOOK-ORD-ORPHAN-86');
+    assert.ok(hook, 'merchant should receive backfilled webhook');
+    assert.equal(hook.body.event, 'SUCCESS');
+    assert.equal(hook.body.amountPaise, 35000);
   });
 });

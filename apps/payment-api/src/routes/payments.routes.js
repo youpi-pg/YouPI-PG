@@ -33,10 +33,31 @@ export function registerPaymentRoutes(server, ctx) {
     const idempotencyKey = req.headers['idempotency-key'] || body.idempotencyKey;
 
     // Resolve merchant (default to first/demo merchant if none passed in header)
-    const merchantId = req.headers['x-merchant-id'] || body.merchantId;
-    let merchant;
-    if (merchantId) {
-      merchant = ctx.merchantRepo.findById(merchantId);
+    const rawMerchantId = (req.headers['x-merchant-id'] || body.merchantId || '').toString().trim();
+    const docPlaceholders = new Set([
+      'YOUR_MERCHANT_KEY',
+      'YOUR_MERCHANT_PUBLIC_KEY',
+      'YOUR_PUBLIC_KEY',
+      'MERCHANT_PUBLIC_KEY',
+      'YOUR_MERCHANT_ID'
+    ]);
+    let merchant = null;
+    let matchedViaApiKeyInMerchantId = false;
+
+    if (rawMerchantId && !docPlaceholders.has(rawMerchantId.toUpperCase())) {
+      merchant = ctx.merchantRepo.findById(rawMerchantId);
+      if (!merchant && typeof ctx.merchantRepo.findBySlug === 'function') {
+        merchant = ctx.merchantRepo.findBySlug(rawMerchantId);
+      }
+      if (!merchant && typeof ctx.merchantRepo.verifyApiKey === 'function') {
+        // Support developers who put their secret Merchant API Key (`mk_live_...` / webhookSecret) into `data-youpi-key` / `X-Merchant-Id`
+        const allMerchants = ctx.merchantRepo.findAll();
+        const byKey = allMerchants.find(m => ctx.merchantRepo.verifyApiKey(m, rawMerchantId));
+        if (byKey) {
+          merchant = byKey;
+          matchedViaApiKeyInMerchantId = true;
+        }
+      }
     } else {
       merchant = ctx.merchantRepo.getDefault ? ctx.merchantRepo.getDefault() : (ctx.merchantRepo.findById('00000000-0000-0000-0000-000000000001') || ctx.merchantRepo.findAll()[0]);
     }
@@ -46,7 +67,9 @@ export function registerPaymentRoutes(server, ctx) {
       return;
     }
 
-    const presentedMerchantKey = req.headers['x-merchant-key'] || body.merchantKey;
+    const presentedMerchantKey = req.headers['x-merchant-key'] !== undefined
+      ? req.headers['x-merchant-key']
+      : (body.merchantKey !== undefined ? body.merchantKey : (matchedViaApiKeyInMerchantId ? rawMerchantId : undefined));
     const presentedOrderToken = req.headers['x-order-token'] || body.orderToken;
 
     if (presentedMerchantKey !== undefined && presentedMerchantKey !== null) {

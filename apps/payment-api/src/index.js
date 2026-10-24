@@ -115,20 +115,21 @@ export function createPaymentApp(customDb = null, options = {}) {
     eventEmitter
   });
 
+  const webhookEngine = new WebhookEngine({
+    db,
+    merchantRepo,
+    maxRetries: Number(process.env.WEBHOOK_MAX_RETRIES || 5)
+  });
+
   const recoveryEngine = new RecoveryEngine({
     db,
     sessionRepo,
     accountRepo,
     queueEngine,
     timingEngine,
+    webhookEngine,
     auditRepo,
     eventEmitter
-  });
-
-  const webhookEngine = new WebhookEngine({
-    db,
-    merchantRepo,
-    maxRetries: Number(process.env.WEBHOOK_MAX_RETRIES || 5)
   });
 
   const server = new HttpServer();
@@ -330,8 +331,13 @@ export function createPaymentApp(customDb = null, options = {}) {
     gmailPort: Number(process.env.GMAIL_OBSERVER_PORT || 6003)
   });
 
-  // Execute crash recovery on boot
+  // Execute crash recovery on boot (AFTER event listeners are wired so recovered terminal transitions emit webhooks)
   const recoveryStats = recoveryEngine.recover();
+  // Immediately kick off a background retry sweep for any recovered in-flight or backfilled webhooks
+  try {
+    const initialRetry = webhookEngine.retryPending();
+    if (initialRetry && typeof initialRetry.catch === 'function') initialRetry.catch(() => {});
+  } catch {}
 
   // Health check routes
   const healthHandler = (req, res) => {

@@ -8,6 +8,7 @@ export class RecoveryEngine {
    *   accountRepo: import('@youpi/db').ReceivingAccountRepository,
    *   queueEngine: import('./queue-engine.js').QueueEngine,
    *   timingEngine: import('./timing-engine.js').TimingEngine,
+   *   webhookEngine?: import('./webhook-engine.js').WebhookEngine,
    *   auditRepo?: import('@youpi/db').AuditLogRepository,
    *   eventEmitter?: { emit: (event: string, payload: any) => void }
    * }} options
@@ -18,6 +19,7 @@ export class RecoveryEngine {
     this.accountRepo = options.accountRepo;
     this.queueEngine = options.queueEngine;
     this.timingEngine = options.timingEngine;
+    this.webhookEngine = options.webhookEngine;
     this.auditRepo = options.auditRepo;
     this.eventEmitter = options.eventEmitter;
   }
@@ -149,11 +151,20 @@ export class RecoveryEngine {
       }
     }
 
+    // 6. Recover in-flight or missing terminal webhook deliveries
+    let recoveredWebhooksCount = 0;
+    if (this.webhookEngine && typeof this.webhookEngine.recoverMissingDeliveries === 'function') {
+      try {
+        recoveredWebhooksCount = this.webhookEngine.recoverMissingDeliveries({ resetInFlight: true });
+      } catch {}
+    }
+
     return {
       expiredCount,
       failedCount,
       rescheduledCount,
-      promotedCount
+      promotedCount,
+      recoveredWebhooksCount
     };
   }
 }

@@ -196,5 +196,25 @@ describe('Checkout Portal Integration Tests', () => {
       assert.ok(res.text.includes('STORAGE_KEY_IDENTITY'));
       assert.ok(res.text.includes('sanitizeRedirectUrl'));
     });
+
+    test('GET /checkout/:id has balanced DOM structure so ypgStickyFooter stays inside ypg-pc-workspace (Issue #90)', async () => {
+      const res = await get('/checkout/pay_test_uuid_12345');
+      assert.equal(res.status, 200);
+
+      // Must NOT have a duplicate <div class="ypg-body"> wrapper around <main class="ypg-body">
+      assert.equal(res.text.includes('<div class="ypg-body">'), false, 'checkout.html must not wrap partials in a duplicate <div class="ypg-body">');
+      assert.ok(res.text.includes('<main class="ypg-body">'), 'header partial must open <main class="ypg-body">');
+
+      // Verify ypgStickyFooter is closed BEFORE END ypg-pc-workspace, and there are balanced <div> / </div> tags inside ypg-pc-workspace
+      const wsStart = res.text.indexOf('<div class="ypg-pc-workspace">');
+      const footerIdx = res.text.indexOf('id="ypgStickyFooter"');
+      const wsEnd = res.text.indexOf('<!-- END ypg-pc-workspace -->');
+      assert.ok(wsStart > 0 && footerIdx > wsStart && wsEnd > footerIdx, 'ypgStickyFooter must sit inside ypg-pc-workspace');
+
+      const workspaceSlice = res.text.slice(wsStart, wsEnd);
+      const openDivs = (workspaceSlice.match(/<div\b/g) || []).length;
+      const closeDivs = (workspaceSlice.match(/<\/div>/g) || []).length;
+      assert.equal(openDivs, closeDivs, `ypg-pc-workspace must have balanced <div> (${openDivs}) and </div> (${closeDivs}) tags so ypgStickyFooter is not ejected as a 3rd flex column on macOS/iOS`);
+    });
   });
 });
