@@ -623,13 +623,14 @@ export class WhatsAppBerryService extends EventEmitter {
    * @param {string} otpCode 6-digit verification code
    * @param {string} [customerName]
    */
-  async sendOtp(to, otpCode, customerName = '') {
+  async sendOtp(to, otpCode, customerName = '', options = {}) {
+    const senderName = options.appName || (process.env.WHATSAPP_SENDER_NAME || '').trim() || (process.env.DEFAULT_APP_NAME || '').trim() || 'YOUPI PG';
     const greeting = customerName ? `Hello *${customerName}*!` : 'Hello!';
     const message =
-      `🔐 *YOUPI PG Verification Code*\n\n` +
+      `🔐 *${senderName} Verification Code*\n\n` +
       `${greeting} Your one-time login OTP is: *${otpCode}*\n\n` +
       `⏱ _Valid for 5 minutes. Do not share this code with anyone._\n\n` +
-      `— *YOUPI PG Secure Payments*`;
+      `— *${senderName} Secure Payments*`;
 
     return this.sendMessage(to, message);
   }

@@ -1962,7 +1962,8 @@
             }
           } else {
             if (titleEl) titleEl.textContent = 'Payment Successful!';
-            if (descEl) descEl.textContent = 'Your payment was automatically verified by YouPI PG banking observers.';
+            const activeAppName = state?.branding?.appName || '{{APP_NAME}}' || 'YouPI PG';
+            if (descEl) descEl.textContent = `Your payment was automatically verified by ${activeAppName} banking observers.`;
             if (codApiBox) codApiBox.style.display = 'none';
           }
 

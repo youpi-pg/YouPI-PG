@@ -30,6 +30,17 @@
 | `ANDROID_HEARTBEAT_TIMEOUT_MS` | `180000` | Inactivity window before Android device is marked DISCONNECTED |
 | `CHECKOUT_FRAME_ANCESTORS` | unset (any origin in development, `'self'` in production) | Merchant origins (comma or space separated, e.g. `https://shop.example.com`) allowed to embed `/checkout/:id`. The `youpi.js` modal is an iframe, so a store on a different origin than the checkout portal must be listed here or the browser blocks the modal. When unset, any site may frame the checkout page in development, while a production deployment (either `NODE_ENV=production` or `YOUPI_MODE=production`) fences the page to its own origin. Only bare `http(s)` origins are accepted — a path, query, embedded credential or wildcard is ignored, so the value cannot widen the CSP or inject another directive |
 | `YOUPI_ALLOW_PRIVATE_WEBHOOKS` | unset | Set to `true` to permit merchant webhook URLs on loopback/private networks. Required for self-hosted LAN targets; blocked by default as an SSRF guard |
+| `DEFAULT_APP_NAME` | `YOUPI PG` | Gateway application name displayed in checkout, merchant admin, and transaction notifications |
+| `DEFAULT_PRIMARY_COLOR` | `#2563eb` | Default primary brand color (hex) across customer checkout pages |
+| `DEFAULT_SUPPORT_EMAIL` | `support@youpi.local` | Default support email rendered on customer help modal and receipts |
+| `DEFAULT_SUPPORT_PHONE` | `9876543210` | Default customer helpline phone number |
+| `DEFAULT_LOGO_URL` | unset (monogram) | Default brand logo image URL for customer checkout portal |
+| `DEFAULT_TRUST_BADGE_TEXT` | unset | Custom trust badge label (e.g. `${DEFAULT_APP_NAME} Verified Business`) |
+| `DEFAULT_FOOTER_GUARANTEE` | unset | Custom customer protection guarantee text in checkout footer |
+| `DEFAULT_HIDE_POWERED_BY` | `false` | When `true`, completely hides gateway branding from checkout page |
+| `WHATSAPP_SENDER_NAME` | unset | Custom sender label prepended to WhatsApp login OTP messages |
+| `DEFAULT_MERCHANT_NAME` | `YOUPI Demo Store` | Initial merchant business name seeded on first database boot |
+| `DEFAULT_MERCHANT_SLUG` | `demo-store` | Initial merchant slug seeded on first database boot |
 
 ---
 

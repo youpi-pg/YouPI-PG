@@ -4,7 +4,43 @@ YOUPI PG is built from the ground up to be 100% white-label. No hardcoded brand 
 
 ---
 
-## 1. Dynamic Branding Parameters
+## 1. 3-Tier Dynamic Branding Architecture
+
+Branding is resolved hierarchically across three tiers:
+
+```
+[ Tier 1: Environment Variables (.env) ]
+DEFAULT_APP_NAME="AcmePay"
+DEFAULT_PRIMARY_COLOR="#2563eb"
+           │
+           ▼
+[ Tier 2: Merchant Database Record (Admin Panel) ]
+Merchant overrides (appName, primaryColor, logoUrl, customCss)
+           │
+           ▼
+[ Tier 3: Runtime Checkout Session Resolution ]
+Resolved branding = session.branding || merchant.branding || env.DEFAULT_* || 'YOUPI PG'
+```
+
+### Environment Variables Reference
+
+| Variable                   | Default Value         | Description                                                             |
+| :------------------------- | :-------------------- | :---------------------------------------------------------------------- |
+| `DEFAULT_APP_NAME`         | `YOUPI PG`            | Gateway application name displayed across checkout, admin, and receipts |
+| `DEFAULT_PRIMARY_COLOR`    | `#2563eb`             | Default primary brand color (hex)                                       |
+| `DEFAULT_SUPPORT_EMAIL`    | `support@youpi.local` | Default support contact email                                           |
+| `DEFAULT_SUPPORT_PHONE`    | `9876543210`          | Default support helpline phone number                                   |
+| `DEFAULT_LOGO_URL`         | `null`                | Default brand logo image URL (uses dynamic SVG monogram if unset)       |
+| `DEFAULT_TRUST_BADGE_TEXT` | unset                 | Custom trust badge label (e.g. `${DEFAULT_APP_NAME} Verified Business`) |
+| `DEFAULT_FOOTER_GUARANTEE` | unset                 | Custom customer protection guarantee text in checkout footer            |
+| `DEFAULT_HIDE_POWERED_BY`  | `false`               | When `true`, completely hides gateway branding from checkout page       |
+| `WHATSAPP_SENDER_NAME`     | unset                 | Custom sender label prepended to WhatsApp login OTP messages            |
+| `DEFAULT_MERCHANT_NAME`    | `YOUPI Demo Store`    | Initial merchant business name seeded on database migration             |
+| `DEFAULT_MERCHANT_SLUG`    | `demo-store`          | Initial merchant slug seeded on first database migration                |
+
+---
+
+## 2. Per-Merchant Custom Branding
 
 Every merchant can configure custom branding in the `merchants` table via the Merchant Admin or API:
 
@@ -19,6 +55,7 @@ Every merchant can configure custom branding in the `merchants` table via the Me
 ```
 
 ### CSS Variables Injection
+
 The Checkout Portal and Help Portal dynamically map merchant branding to native CSS custom properties:
 
 ```css
@@ -34,7 +71,7 @@ The Checkout Portal and Help Portal dynamically map merchant branding to native 
 
 ---
 
-## 2. Setting Branding via Merchant Admin
+## 3. Setting Branding via Merchant Admin
 
 1. Open **Merchant Admin** (`http://localhost:6001`).
 2. Navigate to **Settings** tab.
@@ -46,7 +83,7 @@ The Checkout Portal and Help Portal dynamically map merchant branding to native 
 
 ---
 
-## 3. Custom Domain Routing (Nginx / Caddy Reverse Proxy)
+## 4. Custom Domain Routing (Nginx / Caddy Reverse Proxy)
 
 To run YOUPI PG on production domains:
 

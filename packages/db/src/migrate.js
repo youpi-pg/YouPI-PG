@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
-import { getCoinStoreWebhookSecret, LEGACY_DEFAULT_WEBHOOK_SECRET } from '@youpi/common';
+import { getCoinStoreWebhookSecret, LEGACY_DEFAULT_WEBHOOK_SECRET, resolveDefaultBranding } from '@youpi/common';
 import { getDatabase } from './database.js';
 import { MerchantRepository } from './repositories/merchant.repository.js';
 import { ReceivingAccountRepository } from './repositories/receiving-account.repository.js';
@@ -123,18 +123,26 @@ export function runMigrations(targetDb) {
 
   let defaultMerchant;
   if (existing.length === 0) {
+    const branding = resolveDefaultBranding();
+    const businessName = process.env.DEFAULT_MERCHANT_NAME || 'YOUPI Demo Store';
+    const slug = process.env.DEFAULT_MERCHANT_SLUG || 'demo-store';
+    const contactEmail = process.env.DEFAULT_SUPPORT_EMAIL || 'merchant@youpi.local';
+    const contactPhone = process.env.DEFAULT_SUPPORT_PHONE || '9876543210';
+
     defaultMerchant = merchantRepo.create({
       id: '00000000-0000-0000-0000-000000000001',
-      businessName: 'YOUPI Demo Store',
-      slug: 'demo-store',
-      contactEmail: 'merchant@youpi.local',
-      contactPhone: '9876543210',
+      businessName,
+      slug,
+      contactEmail,
+      contactPhone,
       webhookUrl: process.env.COIN_STORE_WEBHOOK_URL || 'http://localhost:5000/api/webhook',
       webhookSecret: getCoinStoreWebhookSecret(),
       branding: {
-        appName: 'YOUPI PG',
-        primaryColor: '#2563eb',
-        logoUrl: null
+        appName: branding.appName,
+        primaryColor: branding.primaryColor,
+        logoUrl: branding.logoUrl,
+        trustBadgeText: branding.trustBadgeText,
+        footerGuarantee: branding.footerGuarantee
       }
     });
   } else {

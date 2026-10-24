@@ -4,6 +4,7 @@ import http from 'node:http';
 import { Database } from '@youpi/db';
 import { getAdminToken } from '@youpi/common';
 import { startAdminServer } from '../index.js';
+import { AdminServer } from '../server.js';
 
 describe('Merchant Admin Integration Tests', () => {
   let serverInstance;
@@ -77,5 +78,19 @@ describe('Merchant Admin Integration Tests', () => {
 
     const wrongQueryLogs = await get('/api/logs/stream?token=wrong-token');
     assert.equal(wrongQueryLogs.status, 401);
+  });
+
+  test('renderHtml injects dynamic DEFAULT_APP_NAME into title and brand header', () => {
+    const origEnv = { ...process.env };
+    process.env.DEFAULT_APP_NAME = 'ApexMerchant Suite';
+
+    const adminServer = new AdminServer({ db: testDb });
+    const html = adminServer.renderHtml();
+
+    assert.ok(html.includes('<title>Merchant &amp; Supervisor Hub - ApexMerchant Suite</title>') || html.includes('<title>Merchant & Supervisor Hub - ApexMerchant Suite</title>'));
+    assert.ok(html.includes('<span>🛡️ ApexMerchant Suite</span>'));
+    assert.ok(html.includes('Security Engine v2 &bull; ApexMerchant Suite'));
+
+    process.env = { ...origEnv };
   });
 });

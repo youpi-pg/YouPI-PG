@@ -23,46 +23,61 @@ This document describes how to deploy and run the clean distributable **YOUPI PG
 ## 2. Installation Steps
 
 ### Step 1: Extract / Clone Package
+
 Ensure you are in the package root directory:
+
 ```bash
 cd "YOUPI PG PACKAGE"
 ```
 
 ### Step 2: Configure Environment
+
 Copy the clean template to `.env`:
+
 ```bash
 cp .env.example .env
 ```
+
 Open `.env` in your editor and configure:
+
 1. `ENCRYPTION_MASTER_KEY`: Generate a 64-character hex key (e.g. `node -e "console.log(crypto.randomBytes(32).toString('hex'))"`).
 2. `JWT_SECRET`: Random string at least 32 characters.
 3. `INITIAL_ADMIN_EMAIL` and `INITIAL_ADMIN_PASSWORD`: Credentials for your Merchant Admin dashboard.
 4. `BASE_PAYMENT_API_URL` and `BASE_CHECKOUT_URL`: Your public domain or localhost URLs.
+5. `DEFAULT_APP_NAME`, `DEFAULT_PRIMARY_COLOR`, `DEFAULT_SUPPORT_EMAIL`: (Optional) White-label branding defaults (see `docs/WHITE_LABEL.md`).
 
 ### Step 3: Install Dependencies
+
 ```bash
 npm install
 ```
 
 ### Step 4: Initialize Fresh Database
+
 Run the automated database setup to initialize schema and seed the default merchant and receiving account:
+
 ```bash
 npm run db:setup
 ```
-*(Creates `data/youpi_pg.sqlite` in clean state with 0 transactions).*
+
+_(Creates `data/youpi_pg.sqlite` in clean state with 0 transactions)._
 
 ### Step 5: Start the System
 
 #### Development / Demonstration Mode:
+
 ```bash
 npm run dev
 ```
+
 Starts all services with live reload and console aggregation under the Control Center at `http://localhost:8090`.
 
 #### Production Mode:
+
 ```bash
 npm run start
 ```
+
 Starts services in background daemon mode.
 
 ---
@@ -84,7 +99,8 @@ Starts services in background daemon mode.
 ## 4. Production Domain & SSL (Cloudflare / NGINX)
 
 For production deployment:
+
 1. Terminate SSL at your reverse proxy (NGINX, Caddy, or Cloudflare Tunnel).
 2. Point your public domain (e.g. `pay.yourdomain.com`) to port `7000` (Checkout Portal) or `6100` (Payment API).
-   *The Checkout Portal automatically proxies all `/api/*` requests to the Payment API.*
+   _The Checkout Portal automatically proxies all `/api/_` requests to the Payment API.\*
 3. Update `BASE_PAYMENT_API_URL` and `BASE_CHECKOUT_URL` in `.env` to match your public HTTPS domain.

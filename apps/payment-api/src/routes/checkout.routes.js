@@ -110,12 +110,17 @@ function checkSessionDeviceAccess(session, req, body = null, ctx = null) {
  * Prevents internal credentials (gmailConfig, cloudflareTunnelCommand, tokens) from leaking to public checkouts.
  */
 function sanitizePublicBranding(raw = {}) {
+  const envAppName = (process.env.DEFAULT_APP_NAME || '').trim();
+  const envPrimaryColor = (process.env.DEFAULT_PRIMARY_COLOR || '').trim();
+  const defaultAppName = envAppName || 'YOUPI PG';
+  const defaultPrimaryColor = envPrimaryColor || '#2563eb';
+
   // Strict explicit allowlist to prevent arbitrary internal metadata leaks (CWE-200 / OWASP A01)
   return {
-    appName: raw.appName || 'YOUPI PG',
-    primaryColor: raw.primaryColor || '#2563eb',
+    appName: raw.appName || defaultAppName,
+    primaryColor: raw.primaryColor || defaultPrimaryColor,
     headerTheme: raw.headerTheme || 'gradient',
-    logoUrl: raw.logoUrl || null,
+    logoUrl: raw.logoUrl !== undefined ? raw.logoUrl : ((process.env.DEFAULT_LOGO_URL || '').trim() || null),
     counterInstructions: raw.counterInstructions || 'Please visit the billing counter and present this screen to the cashier.',
     cardCounterInstructions: raw.cardCounterInstructions || 'Please swipe, insert, or tap your credit or debit card on the store POS terminal at the billing desk.',
     supportEmails: Array.isArray(raw.supportEmails) ? raw.supportEmails : [],
@@ -127,12 +132,12 @@ function sanitizePublicBranding(raw = {}) {
     enabledPaymentMethods: Array.isArray(raw.enabledPaymentMethods) ? raw.enabledPaymentMethods : ['UPI'],
     sidebarNotice: raw.sidebarNotice || undefined,
     checkoutNotice: raw.checkoutNotice || undefined,
-    footerGuarantee: raw.footerGuarantee || undefined,
-    trustBadgeText: raw.trustBadgeText || undefined,
+    footerGuarantee: raw.footerGuarantee || (process.env.DEFAULT_FOOTER_GUARANTEE || '').trim() || undefined,
+    trustBadgeText: raw.trustBadgeText || (process.env.DEFAULT_TRUST_BADGE_TEXT || '').trim() || undefined,
     hideTrustBadge: raw.hideTrustBadge !== undefined ? Boolean(raw.hideTrustBadge) : undefined,
     subbannerText: raw.subbannerText || undefined,
     hideSubbanner: raw.hideSubbanner !== undefined ? Boolean(raw.hideSubbanner) : undefined,
-    hidePoweredBy: raw.hidePoweredBy !== undefined ? Boolean(raw.hidePoweredBy) : undefined,
+    hidePoweredBy: raw.hidePoweredBy !== undefined ? Boolean(raw.hidePoweredBy) : (process.env.DEFAULT_HIDE_POWERED_BY === 'true' ? true : undefined),
     hideTimeSavingBanner: raw.hideTimeSavingBanner !== undefined ? Boolean(raw.hideTimeSavingBanner) : undefined
   };
 }

@@ -120,4 +120,36 @@ describe('White-Label Branding & Visual Gateway Customizer Test Suite', () => {
     assert.strictEqual(state.branding.hidePoweredBy, true);
     assert.strictEqual(state.branding.termsUrl, 'https://aurapay.io/terms');
   });
+
+  it('4. sanitizePublicBranding falls back to environment variables when merchant branding is unset', async () => {
+    const origEnv = { ...process.env };
+    process.env.DEFAULT_APP_NAME = 'EnvCustomGateway';
+    process.env.DEFAULT_PRIMARY_COLOR = '#059669';
+
+    // Clear merchant branding directly in DB
+    testDb.run("UPDATE merchants SET branding = '{}' WHERE id = ?", [merchantId]);
+
+    // Create session without merchant branding override
+    const initRes = await authFetch(`${baseUrl}/api/v1/payments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': merchantId },
+      body: JSON.stringify({
+        orderId: 'ORD-ENV-TEST-01',
+        amount: '150.00',
+        currency: 'INR'
+      })
+    });
+    assert.strictEqual(initRes.status, 201);
+    const initData = await initRes.json();
+
+    const stateRes = await authFetch(`${baseUrl}/api/v1/checkout/${initData.paymentId}/state`);
+    assert.strictEqual(stateRes.status, 200);
+    const state = await stateRes.json();
+
+    assert.strictEqual(state.branding.appName, 'EnvCustomGateway');
+    assert.strictEqual(state.branding.primaryColor, '#059669');
+
+    // Restore env
+    process.env = { ...origEnv };
+  });
 });

@@ -220,13 +220,15 @@ export class CheckoutServer {
   renderHtml(paymentId, state) {
     let html = this.loadTemplateWithPartials();
 
-    const appName = state?.branding?.appName || 'YouPI PG';
-    const primaryColor = state?.branding?.primaryColor || '#0b63e5';
+    const appName = state?.branding?.appName || (process.env.DEFAULT_APP_NAME || '').trim() || 'YouPI PG';
+    const primaryColor = state?.branding?.primaryColor || (process.env.DEFAULT_PRIMARY_COLOR || '').trim() || '#0b63e5';
     const merchantName = state?.merchantName || 'Merchant Checkout';
     const orderId = state?.orderId || '';
-    const logoUrl = state?.branding?.logoUrl || '';
+    const logoUrl = state?.branding?.logoUrl || (process.env.DEFAULT_LOGO_URL || '').trim() || '';
     const sidebarNotice = state?.branding?.sidebarNotice || 'Fast & Secure 256-Bit Encrypted Payments';
     const counterInstructions = state?.branding?.counterInstructions || 'Please visit the billing counter and present this screen to the cashier.';
+    const footerGuarantee = state?.branding?.footerGuarantee || (process.env.DEFAULT_FOOTER_GUARANTEE || '').trim() || `Secured by ${appName} & 256-Bit Bank Encryption`;
+    const trustBadgeText = state?.branding?.trustBadgeText || (process.env.DEFAULT_TRUST_BADGE_TEXT || '').trim() || `${appName} Verified Business`;
     const vpa = state?.payeeVpa || state?.vpa || 'merchant@upi';
 
     // In production and localhost, use relative '' so browser requests hit the checkout portal /api proxy
@@ -262,6 +264,8 @@ export class CheckoutServer {
       API_BASE_URL: clientApiBase,
       APP_NAME: appName,
       PRIMARY_COLOR: primaryColor,
+      FOOTER_GUARANTEE: footerGuarantee,
+      TRUST_BADGE_TEXT: trustBadgeText,
       MERCHANT_NAME: merchantName,
       ORDER_ID: orderId,
       AMOUNT: state?.amount || '0.00',

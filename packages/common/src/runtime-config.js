@@ -244,3 +244,51 @@ export function resolveGmailRedirectUri(branding = {}) {
     return `http://localhost:${process.env.GMAIL_OBSERVER_PORT || 6003}/oauth/callback`;
   }
 }
+
+/**
+ * Resolves standard white-label branding configuration with environment variable defaults.
+ * Cascades: overrides -> environment variables (DEFAULT_APP_NAME, etc.) -> default platform fallbacks.
+ *
+ * @param {object} [overrides={}] Merchant or session-specific branding overrides
+ * @returns {{
+ *   appName: string,
+ *   primaryColor: string,
+ *   supportEmail: string,
+ *   supportPhone: string,
+ *   logoUrl: string | null,
+ *   footerGuarantee: string,
+ *   trustBadgeText: string
+ * }}
+ */
+export function resolveDefaultBranding(overrides = {}) {
+  const envAppName = (process.env.DEFAULT_APP_NAME || '').trim();
+  const appName = overrides.appName?.trim() || envAppName || 'YOUPI PG';
+
+  const envPrimaryColor = (process.env.DEFAULT_PRIMARY_COLOR || '').trim();
+  const primaryColor = overrides.primaryColor?.trim() || envPrimaryColor || '#2563eb';
+
+  const envSupportEmail = (process.env.DEFAULT_SUPPORT_EMAIL || '').trim();
+  const supportEmail = overrides.supportEmail?.trim() || envSupportEmail || 'support@youpi.local';
+
+  const envSupportPhone = (process.env.DEFAULT_SUPPORT_PHONE || '').trim();
+  const supportPhone = overrides.supportPhone?.trim() || envSupportPhone || '9876543210';
+
+  const envLogoUrl = (process.env.DEFAULT_LOGO_URL || '').trim() || null;
+  const logoUrl = overrides.logoUrl !== undefined ? overrides.logoUrl : envLogoUrl;
+
+  const defaultTrustBadge = `${appName} Verified Business`;
+  const trustBadgeText = overrides.trustBadgeText?.trim() || (process.env.DEFAULT_TRUST_BADGE_TEXT || '').trim() || defaultTrustBadge;
+
+  const defaultGuarantee = `100% Payment Protection by ${appName}`;
+  const footerGuarantee = overrides.footerGuarantee?.trim() || (process.env.DEFAULT_FOOTER_GUARANTEE || '').trim() || defaultGuarantee;
+
+  return {
+    appName,
+    primaryColor,
+    supportEmail,
+    supportPhone,
+    logoUrl,
+    trustBadgeText,
+    footerGuarantee
+  };
+}

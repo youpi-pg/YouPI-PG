@@ -21,7 +21,8 @@ import {
   findUpiProviderById,
   ALLOWED_NOTIFICATION_PACKAGES,
   isAllowedNotificationPackage,
-  calculateObservationFingerprint
+  calculateObservationFingerprint,
+  resolveDefaultBranding
 } from '../index.js';
 
 describe('@youpi/common Unit Tests', () => {
@@ -293,5 +294,62 @@ describe('safeEqual', () => {
     assert.equal(safeEqual('abc', 'abd'), false);
     assert.equal(safeEqual('abc', 'abcd'), false);
     assert.equal(safeEqual(undefined, 'abc'), false);
+  });
+});
+
+describe('resolveDefaultBranding', () => {
+  const origEnv = { ...process.env };
+
+  test('resolves default platform branding when env is unset', () => {
+    delete process.env.DEFAULT_APP_NAME;
+    delete process.env.DEFAULT_PRIMARY_COLOR;
+    delete process.env.DEFAULT_SUPPORT_EMAIL;
+    delete process.env.DEFAULT_SUPPORT_PHONE;
+    delete process.env.DEFAULT_LOGO_URL;
+    delete process.env.DEFAULT_TRUST_BADGE_TEXT;
+    delete process.env.DEFAULT_FOOTER_GUARANTEE;
+
+    const b = resolveDefaultBranding();
+    assert.equal(b.appName, 'YOUPI PG');
+    assert.equal(b.primaryColor, '#2563eb');
+    assert.equal(b.supportEmail, 'support@youpi.local');
+    assert.equal(b.supportPhone, '9876543210');
+    assert.equal(b.logoUrl, null);
+    assert.equal(b.trustBadgeText, 'YOUPI PG Verified Business');
+    assert.equal(b.footerGuarantee, '100% Payment Protection by YOUPI PG');
+  });
+
+  test('honors environment variable overrides', () => {
+    process.env.DEFAULT_APP_NAME = 'ApexPay';
+    process.env.DEFAULT_PRIMARY_COLOR = '#10b981';
+    process.env.DEFAULT_SUPPORT_EMAIL = 'help@apexpay.com';
+    process.env.DEFAULT_SUPPORT_PHONE = '9999888877';
+    process.env.DEFAULT_LOGO_URL = 'https://apexpay.com/logo.png';
+    process.env.DEFAULT_TRUST_BADGE_TEXT = 'Apex Certified';
+    process.env.DEFAULT_FOOTER_GUARANTEE = 'Protected by ApexPay';
+
+    const b = resolveDefaultBranding();
+    assert.equal(b.appName, 'ApexPay');
+    assert.equal(b.primaryColor, '#10b981');
+    assert.equal(b.supportEmail, 'help@apexpay.com');
+    assert.equal(b.supportPhone, '9999888877');
+    assert.equal(b.logoUrl, 'https://apexpay.com/logo.png');
+    assert.equal(b.trustBadgeText, 'Apex Certified');
+    assert.equal(b.footerGuarantee, 'Protected by ApexPay');
+
+    // Restore environment
+    process.env = { ...origEnv };
+  });
+
+  test('gives explicit caller overrides highest priority over env', () => {
+    process.env.DEFAULT_APP_NAME = 'ApexPay';
+
+    const b = resolveDefaultBranding({ appName: 'MerchantBrand' });
+    assert.equal(b.appName, 'MerchantBrand');
+    assert.equal(b.trustBadgeText, 'MerchantBrand Verified Business');
+    assert.equal(b.footerGuarantee, '100% Payment Protection by MerchantBrand');
+
+    // Restore environment
+    process.env = { ...origEnv };
   });
 });

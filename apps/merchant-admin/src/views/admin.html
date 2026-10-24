@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Merchant & Supervisor Hub - YOUPI PG</title>
+  <title>Merchant & Supervisor Hub - {{APP_NAME}}</title>
   <script>
     /* Apply saved theme pref (system | light | dark) before first paint to avoid a flash. */
     (function () {
@@ -1200,7 +1200,7 @@
   <header>
     <div class="brand-group">
       <div class="brand-title">
-        <span>🛡️ YOUPI PG</span>
+        <span>🛡️ {{APP_NAME}}</span>
       </div>
       <span class="brand-badge">Merchant &amp; Supervisor Hub</span>
     </div>
@@ -1569,7 +1569,7 @@
                   <div>
                     <label style="display:block; font-size:0.82rem; font-weight:700; margin-bottom:0.35rem;">Gateway
                       Title / App Name</label>
-                    <input id="settingAppName" type="text" value="YOUPI PG" placeholder="e.g. YOUPI Pay"
+                    <input id="settingAppName" type="text" value="{{APP_NAME}}" placeholder="e.g. {{APP_NAME}}"
                       style="width:100%;" oninput="updateLiveWhiteLabelPreview()" />
                   </div>
                 </div>
@@ -1778,7 +1778,7 @@
                     <span>🛒</span>
                     <span id="mockupSubbannerText"
                       style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Verified &amp; Protected by
-                      YOUPI PG</span>
+                      {{APP_NAME}}</span>
                   </div>
                 </div>
 
@@ -1822,11 +1822,11 @@
                   <div
                     style="display:flex; align-items:center; justify-content:center; gap:5px; font-size:10px; font-weight:700; color:#0b63e5; margin-bottom:5px;">
                     <span>🛡️</span>
-                    <span id="mockupFooterGuarantee">100% Payment Protection by YOUPI PG</span>
+                    <span id="mockupFooterGuarantee">100% Payment Protection by {{APP_NAME}}</span>
                   </div>
                   <div id="mockupLegalDisclaimer"
                     style="font-size:9px; color:#64748b; text-align:center; margin-bottom:8px;">
-                    Secured by YOUPI PG &amp; 256-Bit Bank Encryption &bull; Privacy Notice
+                    Secured by {{APP_NAME}} &amp; 256-Bit Bank Encryption &bull; Privacy Notice
                   </div>
                   <div
                     style="display:flex; justify-content:space-between; align-items:center; background:#0f172a; border-radius:8px; padding:8px 12px; color:#ffffff;">
@@ -3472,7 +3472,7 @@
 
       <div
         style="margin-top:1.5rem; display:flex; justify-content:space-between; align-items:center; border-top:1px solid #1e293b; padding-top:1rem;">
-        <div style="font-size:0.75rem; color:#64748b;">Security Engine v2 &bull; YOUPI PG</div>
+        <div style="font-size:0.75rem; color:#64748b;">Security Engine v2 &bull; {{APP_NAME}}</div>
         <div style="display:flex; gap:0.75rem;">
           <button class="btn btn-secondary" onclick="closeBanDetailsModal()">Close</button>
           <button id="btnModalUnbanTrigger" class="btn btn-success"
@@ -4699,7 +4699,7 @@
 
     function updateLiveWhiteLabelPreview() {
       const bName = document.getElementById('settingBusinessName')?.value.trim() || 'Merchant Checkout';
-      const appName = document.getElementById('settingAppName')?.value.trim() || 'YOUPI PG';
+      const appName = document.getElementById('settingAppName')?.value.trim() || '{{APP_NAME}}' || 'YOUPI PG';
       const logoUrl = document.getElementById('settingLogoUrl')?.value.trim() || '';
       const primaryColor = document.getElementById('settingPrimaryColor')?.value.trim() || '#0b63e5';
       const headerTheme = document.getElementById('settingHeaderTheme')?.value || 'gradient';
@@ -4805,7 +4805,7 @@
           setVal('settingWebhookUrl', mData.webhookUrl);
           setVal('settingWebhookSecret', mData.webhookSecret);
 
-          setVal('settingAppName', branding.appName || 'YOUPI PG');
+          setVal('settingAppName', branding.appName || '{{APP_NAME}}' || 'YOUPI PG');
           setVal('settingLogoUrl', branding.logoUrl);
           setVal('settingSidebarNotice', branding.sidebarNotice);
           setVal('settingFooterGuarantee', branding.footerGuarantee);
@@ -4983,7 +4983,7 @@
     async function saveMerchantBrandingAndToggles() {
       settingsLoaded = true;
       const businessName = document.getElementById('settingBusinessName')?.value.trim() || '';
-      const appName = document.getElementById('settingAppName')?.value.trim() || 'YOUPI PG';
+      const appName = document.getElementById('settingAppName')?.value.trim() || '{{APP_NAME}}' || 'YOUPI PG';
       const logoUrl = document.getElementById('settingLogoUrl')?.value.trim() || '';
       const primaryColor = document.getElementById('settingPrimaryColor')?.value.trim() || '#0b63e5';
       const sidebarNotice = document.getElementById('settingSidebarNotice')?.value.trim() || (currentMerchantBranding?.sidebarNotice || '');

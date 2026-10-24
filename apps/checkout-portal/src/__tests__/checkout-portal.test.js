@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { startCheckoutServer } from '../index.js';
 import { generateQrMatrix, generateQrSvg } from '@youpi/core';
-import { frameAncestorOrigins } from '../server.js';
+import { CheckoutServer, frameAncestorOrigins } from '../server.js';
 
 describe('Checkout Portal Integration Tests', () => {
   let serverInstance;
@@ -195,6 +195,25 @@ describe('Checkout Portal Integration Tests', () => {
       // redirect and postMessage guards live here.
       assert.ok(res.text.includes('STORAGE_KEY_IDENTITY'));
       assert.ok(res.text.includes('sanitizeRedirectUrl'));
+    });
+
+    test('renders dynamic branding when DEFAULT_APP_NAME or merchant branding is configured', async () => {
+      const origEnv = { ...process.env };
+      process.env.DEFAULT_APP_NAME = 'CustomPay Gateway';
+      process.env.DEFAULT_PRIMARY_COLOR = '#0ea5e9';
+
+      const portalServer = new CheckoutServer();
+      const html = portalServer.renderHtml('pay_123', {
+        merchantName: 'My Super Store',
+        amount: '299.00'
+      });
+
+      assert.ok(html.includes('CustomPay Gateway Checkout'));
+      assert.ok(html.includes('CustomPay Gateway Verified Business'));
+      assert.ok(html.includes('200+ orders verified this month by CustomPay Gateway'));
+      assert.ok(html.includes('CustomPay Gateway Help &amp; Support'));
+
+      process.env = { ...origEnv };
     });
   });
 });

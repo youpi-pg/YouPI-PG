@@ -74,11 +74,16 @@ export class AdminServer {
       this.template = fs.readFileSync(this.htmlTemplatePath, 'utf8');
     } catch {}
 
+    const appName = (process.env.DEFAULT_APP_NAME || '').trim() || 'YOUPI PG';
+    const primaryColor = (process.env.DEFAULT_PRIMARY_COLOR || '').trim() || '#2563eb';
+
     let html = this.template;
     // Always use empty string '' so client fetch calls hit the merchant admin's own /api proxy!
     // This completely eliminates CORS errors, tunnel downtime 530s, and cross-origin failures.
     const clientApiBase = '';
     html = html.replaceAll('{{API_BASE_URL}}', clientApiBase);
+    html = html.replaceAll('{{APP_NAME}}', appName);
+    html = html.replaceAll('{{DEFAULT_PRIMARY_COLOR}}', primaryColor);
     return html;
   }
 
