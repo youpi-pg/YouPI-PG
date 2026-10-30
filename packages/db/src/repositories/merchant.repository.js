@@ -168,20 +168,13 @@ export class MerchantRepository {
   }
 
   /**
-   * Verifies a candidate merchant API key against the merchant's stored SHA-256 apiKeyHash
-   * (or webhookSecret for backward compatibility) in constant time.
+   * Verifies a candidate merchant API key against the stored SHA-256 apiKeyHash.
    */
   verifyApiKey(merchant, candidateKey) {
     if (!merchant || !candidateKey || typeof candidateKey !== 'string') return false;
     const clean = candidateKey.trim();
     if (!clean) return false;
     if (merchant.apiKeyHash && safeEqual(hashApiKey(clean), merchant.apiKeyHash)) {
-      return true;
-    }
-    if (merchant.branding?.merchantApiKey && safeEqual(clean, merchant.branding.merchantApiKey)) {
-      return true;
-    }
-    if (merchant.webhookSecret && safeEqual(clean, merchant.webhookSecret)) {
       return true;
     }
     return false;

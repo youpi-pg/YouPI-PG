@@ -28,6 +28,17 @@ describe('@youpi/db Unit & Integration Tests', () => {
   let testMerchant;
   let testAccount;
 
+  test('merchant API authentication accepts only the dedicated API key hash', () => {
+    const merchant = merchantRepo.create({
+      businessName: 'Key isolation fixture', slug: 'key-isolation-fixture', contactEmail: 'keys@example.test', contactPhone: '9000000000',
+      apiKey: 'mk_live_dedicated_api_credential_123456', webhookSecret: 'independent_webhook_hmac_secret_123456',
+      branding: { merchantApiKey: 'legacy_branding_key_123456' }
+    });
+    assert.equal(merchantRepo.verifyApiKey(merchant, 'mk_live_dedicated_api_credential_123456'), true);
+    assert.equal(merchantRepo.verifyApiKey(merchant, 'independent_webhook_hmac_secret_123456'), false);
+    assert.equal(merchantRepo.verifyApiKey(merchant, 'legacy_branding_key_123456'), false);
+  });
+
   beforeEach(() => {
     db = new Database({ inMemory: true });
     const { defaultMerchant } = runMigrations(db);

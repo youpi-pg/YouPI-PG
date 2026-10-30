@@ -282,6 +282,11 @@ export function registerAdminRoutes(server, ctx) {
       return;
     }
 
+    if (session.method === PaymentMethod.MANUAL_UPI) {
+      HttpServer.json(res, 409, { error: 'Manual UPI claims must be approved in the merchant order system after checking the receiving bank account.' });
+      return;
+    }
+
     if ([PaymentStatus.SUCCESS, PaymentStatus.RECONCILED, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED].includes(session.status)) {
       HttpServer.json(res, 409, { error: `Cannot confirm a payment in terminal status '${session.status}'.` });
       return;
