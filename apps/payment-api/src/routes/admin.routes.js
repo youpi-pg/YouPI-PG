@@ -726,7 +726,7 @@ export function registerAdminRoutes(server, ctx) {
     HttpServer.json(res, 200, {
       merchantId: merchant.id,
       publishableKey: merchant.id,
-      merchantKey: merchant.merchantKey || branding.merchantApiKey || merchant.webhookSecret || '',
+      merchantKey: merchant.merchantKey || branding.merchantApiKey || '',
       businessName: merchant.businessName,
       upiId: account ? account.upiId : '',
       payeeName: account ? account.payeeName : merchant.businessName,
@@ -1028,7 +1028,7 @@ export function registerAdminRoutes(server, ctx) {
     HttpServer.json(res, 200, {
       merchantId: merchant.id,
       publishableKey: merchant.id,
-      merchantKey: merchant.merchantKey || branding.merchantApiKey || merchant.webhookSecret || '',
+      merchantKey: merchant.merchantKey || branding.merchantApiKey || '',
       businessName: merchant.businessName,
       contactEmail: merchant.contactEmail,
       contactPhone: merchant.contactPhone,
@@ -1219,7 +1219,7 @@ export function registerAdminRoutes(server, ctx) {
       success: true,
       merchantId: updated.id,
       publishableKey: updated.id,
-      merchantKey: updated.merchantKey || updated.branding?.merchantApiKey || updated.webhookSecret || '',
+      merchantKey: updated.merchantKey || updated.branding?.merchantApiKey || '',
       businessName: updated.businessName,
       webhookUrl: updated.webhookUrl || '',
       webhookSecret: updated.webhookSecret || '',

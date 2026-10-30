@@ -213,7 +213,7 @@ export class MerchantRepository {
       webhookUrl: row.webhook_url,
       // Plaintext rows written before encryption existed decrypt to themselves.
       webhookSecret,
-      merchantKey: branding?.merchantApiKey || webhookSecret || '',
+      merchantKey: branding?.merchantApiKey && row.api_key_hash === hashApiKey(branding.merchantApiKey) ? branding.merchantApiKey : '',
       apiKeyHash: row.api_key_hash || null,
       branding,
       createdAt: new Date(row.created_at),

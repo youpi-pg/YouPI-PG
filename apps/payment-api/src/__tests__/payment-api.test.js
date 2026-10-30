@@ -1159,7 +1159,7 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
       assert.equal(settingsBefore.status, 200);
       assert.ok(settingsBefore.body.merchantId);
       assert.equal(settingsBefore.body.publishableKey, settingsBefore.body.merchantId);
-      assert.ok(settingsBefore.body.merchantKey, 'merchantKey should be returned in merchant-settings');
+      assert.equal(settingsBefore.body.merchantKey, '', 'legacy webhook secrets must not be returned as merchant API keys');
 
       // 2. Rotate Merchant API Key via POST /api/v1/admin/merchant-key/rotate
       const rotateRes = await request('/api/v1/admin/merchant-key/rotate', {

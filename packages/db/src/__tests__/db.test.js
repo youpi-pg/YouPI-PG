@@ -37,6 +37,7 @@ describe('@youpi/db Unit & Integration Tests', () => {
     assert.equal(merchantRepo.verifyApiKey(merchant, 'mk_live_dedicated_api_credential_123456'), true);
     assert.equal(merchantRepo.verifyApiKey(merchant, 'independent_webhook_hmac_secret_123456'), false);
     assert.equal(merchantRepo.verifyApiKey(merchant, 'legacy_branding_key_123456'), false);
+    assert.equal(merchant.merchantKey, '', 'webhook secrets must never be exposed as API keys');
   });
 
   beforeEach(() => {
