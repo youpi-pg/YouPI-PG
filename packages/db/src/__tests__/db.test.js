@@ -14,7 +14,7 @@ import {
   SupportTicketRepository,
   AuditLogRepository
 } from '../index.js';
-import { PaymentStatus, ObserverSource, SenderType, TicketStatus } from '@youpi/common';
+import { PaymentStatus, PaymentMethod, ObserverSource, SenderType, TicketStatus } from '@youpi/common';
 
 describe('@youpi/db Unit & Integration Tests', () => {
   let db;
@@ -55,6 +55,23 @@ describe('@youpi/db Unit & Integration Tests', () => {
     assert.equal(testAccount.upiId, 'merchant@upi');
     assert.equal(testAccount.isActive, true);
     assert.equal(testAccount.isSlotBusy, false);
+  });
+
+  test('manual UPI UTR is idempotent, unique per receiving account, and only moves to review', () => {
+    const first = sessionRepo.create({ merchantId: testMerchant.id, receivingAccountId: testAccount.id,
+      orderId: 'MANUAL-UTR-1', amountPaise: 12300, method: PaymentMethod.MANUAL_UPI });
+    sessionRepo.acquireSlotAtomic(first.id, testAccount.id, 300000);
+    const submitted = sessionRepo.submitManualUtr(first.id, ' ab1234567890 ');
+    assert.equal(submitted.status, PaymentStatus.MANUAL_REVIEW);
+    assert.equal(submitted.customerUtr, 'AB1234567890');
+    assert.equal(sessionRepo.submitManualUtr(first.id, 'AB1234567890').id, first.id);
+    assert.throws(() => sessionRepo.submitManualUtr(first.id, 'bad'), /valid UPI reference/);
+
+    const second = sessionRepo.create({ merchantId: testMerchant.id, receivingAccountId: testAccount.id,
+      orderId: 'MANUAL-UTR-2', amountPaise: 12300, method: PaymentMethod.MANUAL_UPI });
+    sessionRepo.acquireSlotAtomic(second.id, testAccount.id, 300000);
+    assert.throws(() => sessionRepo.submitManualUtr(second.id, 'AB1234567890'), /UNIQUE constraint failed/);
+    assert.equal(sessionRepo.findById(second.id).status, PaymentStatus.ACTIVE);
   });
 
   test('customer registration and password verification', () => {

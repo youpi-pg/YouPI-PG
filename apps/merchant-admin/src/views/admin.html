@@ -7787,7 +7787,7 @@
 
       const currentM = merchantsList.find(m => m.id === currentMerchantId);
       const host = window.location.origin;
-      const snippet = `<script src="${host}/youpi.js" data-youpi-key="${currentMerchantId}"></script>`;
+      const snippet = `<script src="${host}/youpi.js" data-youpi-key="${currentMerchantId}"><\/script>`;
       if (snippetEl) snippetEl.value = snippet;
 
       if (keyEl) {

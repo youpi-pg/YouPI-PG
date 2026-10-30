@@ -12,6 +12,7 @@ describe('Merchant SDK Integration Tests', () => {
   const merchantSecret = 'sdk_test_webhook_secret_9988';
 
   before(async () => {
+    process.env.YOUPI_ALLOWED_RETURN_ORIGINS = 'https://store.example';
     testDb = new Database({ inMemory: true });
     apiInstance = await startPaymentApi(6195, testDb);
 
