@@ -439,14 +439,20 @@ export class CheckoutServer {
         const businessName = url.searchParams.get('name') || process.env.DEFAULT_APP_NAME || 'Merchant Store';
         const payeeVpa = url.searchParams.get('vpa') || process.env.DEFAULT_PAYEE_VPA || 'customer@ybl';
         const phonePeMobile = url.searchParams.get('mobile') || process.env.PHONEPE_REGISTERED_MOBILE || '';
+        const payeeName = url.searchParams.get('payee') || '';
         const primaryColor = url.searchParams.get('color') || process.env.DEFAULT_PRIMARY_COLOR || '#5f259f';
         const format = url.searchParams.get('format') || 'table-tent';
+        const theme = url.searchParams.get('theme') || (businessName.toLowerCase().includes('cracker') ? 'diwali' : 'standard');
+        const poweredBy = url.searchParams.get('poweredBy') || '';
 
         const html = generateStandHtml({
           businessName,
           payeeVpa,
           phonePeMobile,
+          payeeName,
           primaryColor,
+          theme,
+          poweredBy,
           format: format === 'desk-badge' ? 'desk-badge' : 'table-tent'
         });
 
@@ -461,11 +467,17 @@ export class CheckoutServer {
 
       // Stand QR SVG: GET /stand/qr.svg
       if (pathname === '/stand/qr.svg') {
+        const businessName = url.searchParams.get('name') || process.env.DEFAULT_APP_NAME || 'Merchant Store';
         const payeeVpa = url.searchParams.get('vpa') || process.env.DEFAULT_PAYEE_VPA || 'customer@ybl';
-        const payeeName = url.searchParams.get('name') || process.env.DEFAULT_APP_NAME || 'Merchant Store';
+        const payeeName = url.searchParams.get('payee') || businessName;
+        const phonePeMobile = url.searchParams.get('mobile') || process.env.PHONEPE_REGISTERED_MOBILE || '';
         const amountStr = url.searchParams.get('amount');
         const orderId = url.searchParams.get('orderId') || '';
         const mode = url.searchParams.get('mode');
+        const format = url.searchParams.get('format') || 'table-tent';
+        const theme = url.searchParams.get('theme') || (businessName.toLowerCase().includes('cracker') ? 'diwali' : 'standard');
+        const poweredBy = url.searchParams.get('poweredBy') || '';
+        const primaryColor = url.searchParams.get('color') || process.env.DEFAULT_PRIMARY_COLOR || '#5f259f';
 
         let amountPaise = null;
         if (amountStr && mode !== 'static') {
@@ -474,16 +486,18 @@ export class CheckoutServer {
           } catch {}
         }
 
-        const upiUri = buildStandUpiUri({
+        const svg = generateStandSvg({
+          businessName,
           payeeVpa,
+          phonePeMobile,
           payeeName,
           amountPaise,
-          mode: amountPaise ? '04' : '02',
-          transactionNote: orderId,
-          currency: 'INR'
+          theme,
+          poweredBy,
+          primaryColor,
+          format: format === 'desk-badge' ? 'desk-badge' : 'table-tent'
         });
 
-        const svg = generateQrSvg(upiUri, 260);
         res.writeHead(200, {
           'Content-Type': 'image/svg+xml',
           'Cache-Control': 'no-store, no-cache, must-revalidate',

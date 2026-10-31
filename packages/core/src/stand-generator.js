@@ -66,6 +66,7 @@ function renderQrMatrixSvg(upiUri, x, y, size, color = '#1a1a1a') {
  * - Countertop Acrylic T-Stands & Table Tents (4" x 6" / 1200 x 1800 px)
  * - Large Counter Displays (5" x 7" / 1500 x 2100 px)
  * - Compact POS Till Badges & Stickers (3.5" x 3.5" / 1050 x 1050 px)
+ * - Festive Themes (Diwali Festival Crackers Standee with Diyas & Firework Glows)
  *
  * @param {{
  *   businessName: string,
@@ -78,6 +79,8 @@ function renderQrMatrixSvg(upiUri, x, y, size, color = '#1a1a1a') {
  *   merchantCategoryCode?: string,
  *   tagline?: string,
  *   noticeText?: string,
+ *   theme?: 'standard' | 'diwali',
+ *   poweredBy?: string,
  *   format?: 'table-tent' | 'counter-stand' | 'desk-badge'
  * }} options
  * @returns {string} Stand SVG markup
@@ -95,7 +98,8 @@ export function generateStandSvg(options) {
   const accentColor = options.accentColor || '#00baf2'; // Paytm Cyan / UPI Vibrant Blue
   const format = options.format || 'table-tent';
   const tagline = (options.tagline || 'Scan & Pay with Any UPI App').trim();
-  const noticeText = (options.noticeText || 'Scan with PhonePe, GPay, or Paytm camera (Live Scan accepts ₹2,000+)').trim();
+  const theme = options.theme || (businessName.toLowerCase().includes('cracker') || businessName.toLowerCase().includes('diwali') ? 'diwali' : 'standard');
+  const poweredBy = (options.poweredBy || '').trim();
 
   // Build NPCI compliant UPI URI for physical stand (mode=02 static or mode=04 dynamic)
   const upiUri = buildStandUpiUri({
@@ -156,11 +160,207 @@ export function generateStandSvg(options) {
   <!-- Footer Information -->
   <rect x="75" y="880" width="900" height="120" rx="20" fill="#ffffff" stroke="#e2e8f0" stroke-width="2"/>
   <text x="525" y="925" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="28" font-weight="800" fill="#0f172a">UPI ID: ${escapeXml(payeeVpa)}</text>
-  ${phonePeMobile ? `<text x="525" y="970" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="22" font-weight="700" fill="${primaryColor}">PhonePe Registered: ${escapeXml(phonePeMobile)}</text>` : ''}
+  ${phonePeMobile ? `<text x="525" y="965" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="22" font-weight="700" fill="${primaryColor}">PhonePe: ${escapeXml(phonePeMobile)}</text>` : ''}
+  ${poweredBy ? `<text x="525" y="1020" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="700" fill="#64748b">Powered by ${escapeXml(poweredBy)}</text>` : ''}
 </svg>`;
   }
 
-  // Default: 'table-tent' (4" x 6" at 300 DPI: 1200 x 1800 px) & 'counter-stand' (1200 x 1800 scaled)
+  // DIWALI FESTIVAL SPECIAL STANDEE (4" x 6" at 300 DPI: 1200 x 1800 px)
+  const nameParts = businessName.split(/\s*-\s*/);
+  const stallTitle = nameParts[0];
+  const stallSubtitle = nameParts.length > 1 ? `- ${nameParts.slice(1).join(' - ')} -` : '';
+
+  if (theme === 'diwali') {
+    const qrSize = 660;
+    const qrX = (1200 - qrSize) / 2;
+    const qrY = 510;
+    const qrRects = renderQrMatrixSvg(upiUri, qrX, qrY, qrSize, '#090d16');
+
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1800" width="1200" height="1800">
+  <defs>
+    <!-- Royal Diwali Background Gradient -->
+    <linearGradient id="diwaliBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#120224"/>
+      <stop offset="35%" stop-color="#2a064a"/>
+      <stop offset="70%" stop-color="#460a6b"/>
+      <stop offset="100%" stop-color="#1a0230"/>
+    </linearGradient>
+
+    <!-- Rich Festive Gold Gradient -->
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#fff275"/>
+      <stop offset="30%" stop-color="#ffb703"/>
+      <stop offset="70%" stop-color="#fb8500"/>
+      <stop offset="100%" stop-color="#ffb703"/>
+    </linearGradient>
+
+    <!-- Diya Brass Lamp Gradient -->
+    <linearGradient id="diyaBrass" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffe494"/>
+      <stop offset="50%" stop-color="#d4af37"/>
+      <stop offset="100%" stop-color="#8c6d1f"/>
+    </linearGradient>
+
+    <!-- Diya Flame Gradient -->
+    <radialGradient id="flameGrad" cx="50%" cy="70%" r="60%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="30%" stop-color="#ffea00"/>
+      <stop offset="70%" stop-color="#ff6d00"/>
+      <stop offset="100%" stop-color="#d50000"/>
+    </radialGradient>
+
+    <!-- Flame Ambient Glow Filter -->
+    <filter id="flameGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <filter id="goldDropShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#ffb703" flood-opacity="0.5"/>
+    </filter>
+
+    <filter id="standCardShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="12" stdDeviation="24" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+
+  <!-- Deep Festive Canvas Base -->
+  <rect width="1200" height="1800" fill="url(#diwaliBg)"/>
+
+  <!-- Decorative Festive Toran & Garland Border Pattern -->
+  <g opacity="0.35">
+    <circle cx="150" cy="180" r="120" fill="none" stroke="#ffb703" stroke-width="1.5" stroke-dasharray="6,6"/>
+    <circle cx="1050" cy="180" r="120" fill="none" stroke="#ffb703" stroke-width="1.5" stroke-dasharray="6,6"/>
+    <circle cx="600" cy="900" r="540" fill="none" stroke="#ffd166" stroke-width="1" stroke-dasharray="8,8"/>
+  </g>
+
+  <!-- Top Sparkling Cracker Bursts -->
+  <g fill="#ffd166" opacity="0.85">
+    <!-- Starburst Left -->
+    <path d="M 120,80 L 125,95 L 140,100 L 125,105 L 120,120 L 115,105 L 100,100 L 115,95 Z"/>
+    <circle cx="90" cy="70" r="3" fill="#ffb703"/>
+    <circle cx="150" cy="65" r="2.5" fill="#ffffff"/>
+    <circle cx="140" cy="135" r="3" fill="#ffb703"/>
+
+    <!-- Starburst Right -->
+    <path d="M 1080,80 L 1085,95 L 1100,100 L 1085,105 L 1080,120 L 1075,105 L 1060,100 L 1075,95 Z"/>
+    <circle cx="1110" cy="70" r="3" fill="#ffb703"/>
+    <circle cx="1050" cy="65" r="2.5" fill="#ffffff"/>
+    <circle cx="1060" cy="135" r="3" fill="#ffb703"/>
+  </g>
+
+  <!-- Traditional Golden Diyas (Left & Right of Title) -->
+  <!-- Left Diya -->
+  <g transform="translate(140, 240)">
+    <ellipse cx="0" cy="25" rx="42" ry="14" fill="url(#diyaBrass)" stroke="#ffe494" stroke-width="1.5"/>
+    <path d="M -42,25 C -42,50 42,50 42,25 Z" fill="url(#diyaBrass)"/>
+    <ellipse cx="0" cy="22" rx="30" ry="8" fill="#5c440a"/>
+    <!-- Glowing Flame -->
+    <path d="M 0,22 C -16,5 -14,-25 0,-45 C 14,-25 16,5 0,22 Z" fill="url(#flameGrad)" filter="url(#flameGlow)"/>
+  </g>
+
+  <!-- Right Diya -->
+  <g transform="translate(1060, 240)">
+    <ellipse cx="0" cy="25" rx="42" ry="14" fill="url(#diyaBrass)" stroke="#ffe494" stroke-width="1.5"/>
+    <path d="M -42,25 C -42,50 42,50 42,25 Z" fill="url(#diyaBrass)"/>
+    <ellipse cx="0" cy="22" rx="30" ry="8" fill="#5c440a"/>
+    <!-- Glowing Flame -->
+    <path d="M 0,22 C -16,5 -14,-25 0,-45 C 14,-25 16,5 0,22 Z" fill="url(#flameGrad)" filter="url(#flameGlow)"/>
+  </g>
+
+  <!-- Festival Tagline -->
+  <g transform="translate(600, 95)">
+    <text text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="26" font-weight="800" fill="#ffd166" letter-spacing="3">🪔 HAPPY DIWALI • FESTIVAL SPECIAL 🪔</text>
+  </g>
+
+  <!-- Main Business Stall Title -->
+  <g transform="translate(600, 175)">
+    <text text-anchor="middle" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="58" font-weight="900" fill="url(#goldGrad)" filter="url(#goldDropShadow)" letter-spacing="1.5">${escapeXml(stallTitle)}</text>
+    ${stallSubtitle ? `<text y="42" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="28" font-weight="800" fill="#ffd166" letter-spacing="3">${escapeXml(stallSubtitle)}</text>` : ''}
+  </g>
+
+  <g transform="translate(600, 255)">
+    <rect x="-240" y="-22" width="480" height="44" rx="22" fill="rgba(255,183,3,0.18)" stroke="#ffb703" stroke-width="1.5"/>
+    <circle cx="-190" cy="0" r="10" fill="#00e676"/>
+    <text text-anchor="middle" x="12" y="8" font-family="system-ui, -apple-system, sans-serif" font-size="22" font-weight="800" fill="#ffffff">OFFICIAL FESTIVAL CRACKERS STAND</text>
+  </g>
+
+  <g transform="translate(600, 325)">
+    <text text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="28" font-weight="700" fill="#f8fafc">Payee: <tspan fill="#ffd166">${escapeXml(payeeName)}</tspan></text>
+  </g>
+  <g transform="translate(600, 368)">
+    <text text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="21" font-weight="600" fill="#cbd5e1">Scan with any UPI app to buy crackers with zero delays</text>
+  </g>
+
+  <!-- Decorative Gold Banner Frame around QR -->
+  <rect x="${qrX - 45}" y="${qrY - 45}" width="${qrSize + 90}" height="${qrSize + 90}" rx="32" fill="#ffffff" filter="url(#standCardShadow)" stroke="#fbbf24" stroke-width="4"/>
+
+  <!-- Camera Guidance Banner above QR -->
+  <rect x="${qrX - 25}" y="${qrY - 26}" width="${qrSize + 50}" height="42" rx="10" fill="#fffbeb" stroke="#fde68a" stroke-width="1"/>
+  <text x="600" y="${qrY + 3}" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="20" font-weight="800" fill="#b45309">📷 POINT PHONE CAMERA AT QR CODE TO PAY</text>
+
+  <!-- Authentic 2D Binary Vector QR Modules -->
+  <g transform="translate(0, 16)">
+    ${qrRects}
+  </g>
+
+  <!-- Center PhonePe & UPI Emblem -->
+  <circle cx="600" cy="${qrY + qrSize / 2 + 16}" r="48" fill="#ffffff" stroke="${primaryColor}" stroke-width="5"/>
+  <text x="600" y="${qrY + qrSize / 2 + 27}" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="32" font-weight="900" fill="${primaryColor}">पे</text>
+
+  <!-- Live Scan Notice Pill (Highlighting Acceptance > ₹2000) -->
+  <g transform="translate(600, 1285)">
+    <rect x="-490" y="-32" width="980" height="64" rx="32" fill="#ecfdf5" stroke="#34d399" stroke-width="2.5" />
+    <text text-anchor="middle" y="10" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="800" fill="#065f46">✨ Camera Scan Accepts All Amounts Above ₹2,000 (No Gallery Limit)</text>
+  </g>
+
+  <!-- Supported UPI Apps Ribbon -->
+  <g transform="translate(600, 1375)">
+    <text text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="22" font-weight="800" fill="#ffd166" letter-spacing="1.5">ACCEPTED ON ALL MAJOR UPI APPS</text>
+  </g>
+
+  <g transform="translate(600, 1430)">
+    <g transform="translate(-360, 0)">
+      <rect x="-85" y="-22" width="170" height="44" rx="22" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+      <text text-anchor="middle" y="8" font-family="system-ui, -apple-system, sans-serif" font-size="20" font-weight="800" fill="#5f259f">PhonePe</text>
+    </g>
+    <g transform="translate(-180, 0)">
+      <rect x="-85" y="-22" width="170" height="44" rx="22" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+      <text text-anchor="middle" y="8" font-family="system-ui, -apple-system, sans-serif" font-size="20" font-weight="800" fill="#1a73e8">Google Pay</text>
+    </g>
+    <g transform="translate(0, 0)">
+      <rect x="-85" y="-22" width="170" height="44" rx="22" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+      <text text-anchor="middle" y="8" font-family="system-ui, -apple-system, sans-serif" font-size="20" font-weight="800" fill="#00baf2">Paytm</text>
+    </g>
+    <g transform="translate(180, 0)">
+      <rect x="-85" y="-22" width="170" height="44" rx="22" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+      <text text-anchor="middle" y="8" font-family="system-ui, -apple-system, sans-serif" font-size="20" font-weight="800" fill="#00838f">BHIM UPI</text>
+    </g>
+    <g transform="translate(360, 0)">
+      <rect x="-85" y="-22" width="170" height="44" rx="22" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+      <text text-anchor="middle" y="8" font-family="system-ui, -apple-system, sans-serif" font-size="20" font-weight="800" fill="#111827">CRED</text>
+    </g>
+  </g>
+
+  <!-- Merchant Identity Card with VPA & PhonePe Mobile -->
+  <g transform="translate(600, 1575)">
+    <rect x="-490" y="-70" width="980" height="140" rx="24" fill="#ffffff" stroke="#fbbf24" stroke-width="2.5" filter="url(#standCardShadow)"/>
+    <text text-anchor="middle" y="-20" font-family="system-ui, -apple-system, sans-serif" font-size="36" font-weight="900" fill="#0f172a">UPI ID: <tspan fill="#5f259f">${escapeXml(payeeVpa)}</tspan></text>
+    ${phonePeMobile ? `<text text-anchor="middle" y="32" font-family="system-ui, -apple-system, sans-serif" font-size="30" font-weight="800" fill="#059669">PhonePe Registered: ${escapeXml(phonePeMobile)}</text>` : ''}
+  </g>
+
+  <!-- Powered By MOMO IT TECHNOLOGIES Branding Ribbon -->
+  <g transform="translate(600, 1720)">
+    <rect x="-350" y="-28" width="700" height="56" rx="28" fill="rgba(0,0,0,0.5)" stroke="#ffb703" stroke-width="2" />
+    <text text-anchor="middle" y="9" font-family="system-ui, -apple-system, sans-serif" font-size="23" font-weight="800" fill="#ffd166" letter-spacing="1">⚡ POWERED BY ${escapeXml(poweredBy || 'MOMO IT TECHNOLOGIES')}</text>
+  </g>
+</svg>`;
+  }
+
+  // STANDARD TABLE-TENT (4" x 6" at 300 DPI: 1200 x 1800 px) & COUNTER-STAND
   const qrSize = 680;
   const qrX = (1200 - qrSize) / 2;
   const qrY = 480;
@@ -234,7 +434,6 @@ export function generateStandSvg(options) {
   </g>
 
   <g transform="translate(600, 1400)">
-    <!-- App Badges -->
     <g transform="translate(-360, 0)">
       <rect x="-85" y="-22" width="170" height="44" rx="22" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
       <text text-anchor="middle" y="8" font-family="system-ui, -apple-system, sans-serif" font-size="20" font-weight="800" fill="#5f259f">PhonePe</text>
@@ -267,7 +466,7 @@ export function generateStandSvg(options) {
 
   <!-- Footer Bottom Bar -->
   <g transform="translate(600, 1720)">
-    <text text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="20" font-weight="600" fill="#64748b">Direct Bank Settlement • 0% Transaction Fees • Sovereign Self-Hosted Gateway</text>
+    ${poweredBy ? `<text text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="22" font-weight="800" fill="#475569">⚡ Powered by ${escapeXml(poweredBy)}</text>` : '<text text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="20" font-weight="600" fill="#64748b">Direct Bank Settlement • 0% Transaction Fees • Sovereign Self-Hosted Gateway</text>'}
   </g>
 </svg>`;
 }

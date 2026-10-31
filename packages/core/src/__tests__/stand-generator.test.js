@@ -79,6 +79,29 @@ describe('Stand Generator Unit Tests', () => {
     });
   });
 
+
+    test('generates beautiful Diwali festival standee with Diyas and MOMO IT TECHNOLOGIES branding', () => {
+      const svg = generateStandSvg({
+        businessName: 'VISHNU CRACKERS - KADAPA',
+        payeeVpa: '7093259556-3@ybl',
+        phonePeMobile: '7093259556',
+        payeeName: 'ESUKAPALLI VISHNU VA',
+        theme: 'diwali',
+        poweredBy: 'MOMO IT TECHNOLOGIES',
+        format: 'table-tent'
+      });
+
+      assert.ok(svg.includes('HAPPY DIWALI'));
+      assert.ok(svg.includes('VISHNU CRACKERS'));
+      assert.ok(svg.includes('- KADAPA -'));
+      assert.ok(svg.includes('ESUKAPALLI VISHNU VA'));
+      assert.ok(svg.includes('7093259556-3@ybl'));
+      assert.ok(svg.includes('+91 70932 59556'));
+      assert.ok(svg.includes('POWERED BY MOMO IT TECHNOLOGIES'));
+      assert.ok(svg.includes('Camera Scan Accepts All Amounts Above ₹2,000'));
+      assert.ok(svg.includes('flameGrad'));
+    });
+
   describe('generateStandHtml', () => {
     test('generates standalone printable HTML document with print CSS', () => {
       const html = generateStandHtml({
