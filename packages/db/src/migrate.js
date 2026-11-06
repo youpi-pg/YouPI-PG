@@ -188,7 +188,7 @@ export function runMigrations(targetDb) {
       slug,
       contactEmail,
       contactPhone,
-      webhookUrl: process.env.COIN_STORE_WEBHOOK_URL || 'http://localhost:5000/api/webhook',
+      webhookUrl: process.env.COIN_STORE_WEBHOOK_URL || (process.env.NODE_ENV === 'production' ? null : 'http://localhost:5000/api/webhook'),
       webhookSecret: getCoinStoreWebhookSecret(),
       branding: {
         appName: branding.appName,
@@ -202,7 +202,7 @@ export function runMigrations(targetDb) {
     defaultMerchant = existing[0];
     if (!defaultMerchant.webhookSecret) {
       merchantRepo.update(defaultMerchant.id, {
-        webhookUrl: 'http://localhost:5000/api/webhook',
+        webhookUrl: (process.env.NODE_ENV === 'production' ? null : 'http://localhost:5000/api/webhook'),
         webhookSecret: getCoinStoreWebhookSecret()
       });
     } else if (defaultMerchant.webhookSecret === LEGACY_DEFAULT_WEBHOOK_SECRET) {
@@ -215,13 +215,19 @@ export function runMigrations(targetDb) {
   // Seed default UPI receiving account if none
   const accountRepo = new ReceivingAccountRepository(db);
   const accounts = accountRepo.findByMerchantId(defaultMerchant.id);
+  const defaultVpa = (process.env.DEFAULT_PAYEE_VPA || 'merchant@upi').trim();
   if (accounts.length === 0) {
     accountRepo.create({
       id: '00000000-0000-0000-0000-000000000002',
       merchantId: defaultMerchant.id,
-      upiId: 'merchant@upi',
+      upiId: defaultVpa,
       payeeName: defaultMerchant.businessName,
       isActive: true
+    });
+  } else if (process.env.DEFAULT_PAYEE_VPA && accounts.length === 1 && accounts[0].upiId === 'merchant@upi') {
+    accountRepo.update(accounts[0].id, {
+      upiId: defaultVpa,
+      payeeName: defaultMerchant.businessName
     });
   }
 
