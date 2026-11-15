@@ -494,6 +494,28 @@ export class PaymentVerificationPipeline {
       });
     }
 
+    // A debit indicator before the first credit indicator means money left the account,
+    // e.g. "debited for Rs 500; SHOP NAME credited". Same ordering rule as BankSmsParser.
+    const debitIdx = rawText.search(/\b(?:debited|withdrawn|deducted|spent|paid rs|sent rs)\b/i);
+    if (debitIdx !== -1 && debitIdx < rawText.search(creditKeywords)) {
+      stage3 = {
+        stage: 3,
+        name: 'PARSER',
+        status: 'FAILED',
+        reason: 'DEBIT_TRANSACTION',
+        details: 'Message reports a debit from the account, not an incoming credit.'
+      };
+      return buildResult({
+        finalStatus: 'REJECTED',
+        failingStage: 3,
+        failingCondition: 'DEBIT_TRANSACTION',
+        failingReason: stage3.details,
+        stage2,
+        stage3,
+        session
+      });
+    }
+
     // Invariant 2: Check Indian currency indicator (Rs, Rs., ₹, or INR)
     const currencyKeywords = /(?:\b(?:rs\.?|inr)\b|₹|(?:rs\.?|inr|₹)\s*\d|\d\s*(?:rs\.?|inr|₹))/i;
     if (!currencyKeywords.test(rawText)) {
