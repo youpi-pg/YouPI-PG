@@ -300,6 +300,21 @@ describe('YOUPI PG: Parser Rule Correction & Exact Fraud/Ban System (All 29 Acce
     assert.equal(reloaded.status, 'ACTIVE', 'Customer must remain ACTIVE');
   });
 
+  test('10b. Bank debit alert that names the payee as credited: Rejected at Stage 3', () => {
+    const session = createActiveSession('ORD-TEN-B-1', 49900n);
+
+    const result = pipeline.process({
+      source: 'SMS',
+      sender: 'VM-ICICIB',
+      rawText: 'ICICI Bank Acct XX123 debited for Rs 499.00 on 15-Nov-26; SHOP NAME credited. UPI:512345678901. Call 18002662 for dispute.',
+      paymentSessionId: session.id
+    });
+
+    assert.equal(result.status, 'REJECTED');
+    assert.equal(result.failingStage, 3);
+    assert.equal(result.failingCondition, 'DEBIT_TRANSACTION');
+  });
+
   test('11. Malformed text / random string: Rejected at Stage 3. NO ban applied.', () => {
     const cust = customerRepo.create({
       merchantId,
