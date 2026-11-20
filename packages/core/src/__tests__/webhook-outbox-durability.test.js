@@ -123,3 +123,105 @@ test('missing merchant signing key preserves an outboxed event until configurati
     db.close();
   }
 });
+
+test('recoverOutbox advances past retained invalid endpoints and delivers healthy merchant events (#120)', async () => {
+  const { db, sessions, merchants, engine } = fixture('starvation-outbox');
+  const previousFetch = globalThis.fetch;
+  try {
+    const blockedMerchant = merchants.create({
+      businessName: 'Blocked merchant with invalid endpoint',
+      slug: 'blocked-invalid-url',
+      contactEmail: 'blocked@example.com',
+      contactPhone: '9000000001',
+      webhookUrl: 'not-a-url',
+      webhookSecret: 'secret_1'
+    });
+    const healthyMerchant = merchants.create({
+      businessName: 'Healthy merchant with valid endpoint',
+      slug: 'healthy-valid-url',
+      contactEmail: 'healthy@example.com',
+      contactPhone: '9000000002',
+      webhookUrl: 'http://localhost:54321/webhook',
+      webhookSecret: 'secret_2'
+    });
+
+    // 25 terminal events for blocked merchant (exceeds default batchLimit of 20)
+    for (let i = 0; i < 25; i++) {
+      const session = sessions.create({ merchantId: blockedMerchant.id, orderId: `BLOCKED-${i}`, amountPaise: 100n, status: 'ACTIVE' });
+      sessions.transitionToTerminal(session.id, 'EXPIRED');
+      db.execute('UPDATE payment_webhook_outbox SET created_at = ? WHERE payment_id = ?',
+        [new Date(1700000000000 + i).toISOString(), session.id]);
+    }
+
+    // 1 terminal event for healthy merchant created strictly after the blocked events
+    const healthySession = sessions.create({ merchantId: healthyMerchant.id, orderId: 'HEALTHY-1', amountPaise: 100n, status: 'ACTIVE' });
+    sessions.transitionToTerminal(healthySession.id, 'EXPIRED');
+    db.execute('UPDATE payment_webhook_outbox SET created_at = ? WHERE payment_id = ?',
+      [new Date(1700000000000 + 100).toISOString(), healthySession.id]);
+
+    let fetchCount = 0;
+    globalThis.fetch = async () => {
+      fetchCount++;
+      return { ok: true, status: 200, text: async () => 'ok' };
+    };
+
+    const recovered = await engine.recoverOutbox();
+    // Healthy merchant must NOT be starved
+    assert.equal(recovered.length, 1);
+    assert.equal(recovered[0].delivered, true);
+    assert.equal(fetchCount, 1);
+
+    // Blocked merchant's 25 outbox rows must remain intact for human remediation
+    const retainedBlocked = db.queryOne(
+      'SELECT COUNT(*) AS n FROM payment_webhook_outbox o JOIN payment_sessions s ON s.id = o.payment_id WHERE s.merchant_id = ?',
+      [blockedMerchant.id]
+    ).n;
+    assert.equal(retainedBlocked, 25);
+  } finally {
+    globalThis.fetch = previousFetch;
+    db.close();
+  }
+});
+
+test('recoverMissingDeliveries backfills healthy merchant behind invalid candidate prefix (#120)', async () => {
+  const { db, sessions, merchants, engine } = fixture('starvation-backfill');
+  try {
+    const blockedMerchant = merchants.create({
+      businessName: 'Blocked merchant invalid prefix',
+      slug: 'blocked-backfill-url',
+      contactEmail: 'blocked-bf@example.com',
+      contactPhone: '9000000003',
+      webhookUrl: 'not-a-url',
+      webhookSecret: 'secret_bf_1'
+    });
+    const healthyMerchant = merchants.create({
+      businessName: 'Healthy merchant backfill',
+      slug: 'healthy-backfill-url',
+      contactEmail: 'healthy-bf@example.com',
+      contactPhone: '9000000004',
+      webhookUrl: 'http://localhost:54321/webhook',
+      webhookSecret: 'secret_bf_2'
+    });
+
+    // 105 terminal sessions for blocked merchant (exceeds default batchLimit of 100)
+    for (let i = 0; i < 105; i++) {
+      const session = sessions.create({ merchantId: blockedMerchant.id, orderId: `BLOCKED-BF-${i}`, amountPaise: 100n, status: 'ACTIVE' });
+      db.execute('UPDATE payment_sessions SET status = ?, created_at = ? WHERE id = ?',
+        ['EXPIRED', new Date(1700000000000 + i).toISOString(), session.id]);
+    }
+
+    // 1 terminal session for healthy merchant created strictly after
+    const healthySession = sessions.create({ merchantId: healthyMerchant.id, orderId: 'HEALTHY-BF-1', amountPaise: 100n, status: 'ACTIVE' });
+    db.execute('UPDATE payment_sessions SET status = ?, created_at = ? WHERE id = ?',
+      ['EXPIRED', new Date(1700000000000 + 200).toISOString(), healthySession.id]);
+
+    const backfilledCount = engine.recoverMissingDeliveries();
+    assert.equal(backfilledCount, 1);
+
+    const healthyDelivery = db.queryOne('SELECT * FROM webhook_deliveries WHERE payment_id = ?', [healthySession.id]);
+    assert.ok(healthyDelivery);
+    assert.equal(healthyDelivery.merchant_id, healthyMerchant.id);
+  } finally {
+    db.close();
+  }
+});

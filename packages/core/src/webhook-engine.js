@@ -287,8 +287,14 @@ export class WebhookEngine {
    * Prepare and send terminal events committed before a crash but not yet turned
    * into delivery records. The trigger records only new terminal transitions;
    * historic SUCCESS rows are never swept into webhooks on upgrade.
+   *
+   * Scans candidate outbox events past misconfigured or invalid endpoints so
+   * healthy merchants are not starved by an invalid backlog (#120).
+   *
+   * @param {{ batchLimit?: number, scanLimit?: number }} [options]
    */
-  async recoverOutbox() {
+  async recoverOutbox(options = {}) {
+    const { batchLimit = 20, scanLimit = 500 } = options;
     const rows = this.db.query(`
       SELECT o.payment_id, o.event_type
       FROM payment_webhook_outbox o
@@ -296,15 +302,18 @@ export class WebhookEngine {
         SELECT 1 FROM webhook_deliveries d
         WHERE d.payment_id = o.payment_id AND d.event_type = o.event_type
       )
-      ORDER BY o.created_at, o.payment_id LIMIT 20
-    `);
+      ORDER BY o.created_at, o.payment_id LIMIT ?
+    `, [scanLimit]);
     const outcomes = [];
     for (const row of rows) {
+      if (outcomes.length >= batchLimit) break;
       const session = this.sessionRepo.findById(row.payment_id);
       if (!session) continue;
       const merchant = this.merchantRepo.findById(session.merchantId);
       // Keep unconfigured merchants' events in the outbox for human remediation.
       if (!merchant?.webhookUrl || !merchant.webhookSecret) continue;
+      const endpointCheck = validateOutboundWebhookUrl(merchant.webhookUrl);
+      if (!endpointCheck.valid) continue;
       outcomes.push(await this.dispatch(row.event_type, session));
     }
     return outcomes;
@@ -314,11 +323,14 @@ export class WebhookEngine {
    * Recovers webhook deliveries that were interrupted mid-flight by a process crash
    * or terminal payment sessions that transitioned just before `dispatch()` could run.
    *
-   * @param {{ resetInFlight?: boolean }} [options]
+   * Scans candidate orphaned sessions past invalid merchant endpoints so healthy
+   * merchants behind an invalid backlog are not starved (#120).
+   *
+   * @param {{ resetInFlight?: boolean, batchLimit?: number, scanLimit?: number }} [options]
    * @returns {number} Number of recovered/backfilled webhook delivery rows
    */
   recoverMissingDeliveries(options = {}) {
-    const { resetInFlight = false } = options;
+    const { resetInFlight = false, batchLimit = 100, scanLimit = 500 } = options;
     const nowIso = new Date().toISOString();
     let recoveredCount = 0;
 
@@ -344,10 +356,12 @@ export class WebhookEngine {
         AND NOT EXISTS (
           SELECT 1 FROM webhook_deliveries wd WHERE wd.payment_id = ps.id
         )
-      LIMIT 100
-    `);
+      ORDER BY ps.created_at, ps.id
+      LIMIT ?
+    `, [scanLimit]);
 
     for (const sessionRow of orphanedSessions) {
+      if (recoveredCount >= batchLimit) break;
       const merchant = this.merchantRepo.findById(sessionRow.merchant_id);
       if (!merchant || !merchant.webhookUrl || !merchant.webhookSecret) continue;
 
