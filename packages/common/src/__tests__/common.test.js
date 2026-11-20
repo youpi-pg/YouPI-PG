@@ -23,7 +23,8 @@ import {
   ALLOWED_NOTIFICATION_PACKAGES,
   isAllowedNotificationPackage,
   calculateObservationFingerprint,
-  resolveDefaultBranding
+  resolveDefaultBranding,
+  validateOutboundWebhookUrl
 } from '../index.js';
 
 describe('@youpi/common Unit Tests', () => {
@@ -386,3 +387,161 @@ describe('resolveDefaultBranding', () => {
     process.env = { ...origEnv };
   });
 });
+
+describe('Outbound Webhook SSRF Validation', () => {
+    const origAllowPrivate = process.env.YOUPI_ALLOW_PRIVATE_WEBHOOKS;
+
+    test('rejects missing, empty, overly long, and malformed URLs', () => {
+      delete process.env.YOUPI_ALLOW_PRIVATE_WEBHOOKS;
+
+      assert.equal(validateOutboundWebhookUrl('').valid, false);
+      assert.equal(validateOutboundWebhookUrl(null).valid, false);
+      assert.equal(validateOutboundWebhookUrl(undefined).valid, false);
+      assert.equal(validateOutboundWebhookUrl('   ').valid, false);
+      assert.equal(validateOutboundWebhookUrl('not-a-url').valid, false);
+      assert.equal(validateOutboundWebhookUrl('ftp://example.com/hook').valid, false);
+      assert.equal(validateOutboundWebhookUrl('javascript:alert(1)').valid, false);
+      assert.equal(validateOutboundWebhookUrl('http://user:pass@example.com/hook').valid, false);
+      assert.equal(validateOutboundWebhookUrl('https://' + 'a'.repeat(2050) + '.com').valid, false);
+    });
+
+    test('blocks IPv4 loopback, RFC1918, link-local, CGNAT, and broadcast targets', () => {
+      delete process.env.YOUPI_ALLOW_PRIVATE_WEBHOOKS;
+
+      const blockedIpv4 = [
+        'http://127.0.0.1/hook',
+        'http://127.1.2.3:8080/hook',
+        'http://0.0.0.0/hook',
+        'http://10.0.0.1/hook',
+        'http://10.254.1.2/hook',
+        'http://172.16.0.1/hook',
+        'http://172.31.255.254/hook',
+        'http://192.168.1.1/hook',
+        'http://192.168.100.50/hook',
+        'http://169.254.169.254/latest/meta-data',
+        'http://169.254.1.1/hook',
+        'http://100.64.0.1/hook',
+        'http://224.0.0.1/hook',
+        'http://240.0.0.1/hook',
+        'http://255.255.255.255/hook'
+      ];
+
+      for (const url of blockedIpv4) {
+        const res = validateOutboundWebhookUrl(url);
+        assert.equal(res.valid, false, 'Expected blocked: ' + url);
+        assert.match(res.error, /loopback or private network/);
+      }
+    });
+
+    test('blocks IPv6 loopback, link-local, ULA, and multicast targets', () => {
+      delete process.env.YOUPI_ALLOW_PRIVATE_WEBHOOKS;
+
+      const blockedIpv6 = [
+        'http://[::1]/hook',
+        'http://[::]/hook',
+        'http://[fc00::1]/hook',
+        'http://[fd12:3456:789a::1]/hook',
+        'http://[fe80::1]/hook',
+        'http://[fe80::dead:beef]/hook',
+        'http://[ff02::1]/hook'
+      ];
+
+      for (const url of blockedIpv6) {
+        const res = validateOutboundWebhookUrl(url);
+        assert.equal(res.valid, false, 'Expected blocked: ' + url);
+        assert.match(res.error, /loopback or private network/);
+      }
+    });
+
+    test('blocks IPv4-mapped, IPv4-compatible, and 6to4 translated IPv6 targets', () => {
+      delete process.env.YOUPI_ALLOW_PRIVATE_WEBHOOKS;
+
+      const blockedMapped = [
+        'http://[::ffff:127.0.0.1]/hook',
+        'http://[::ffff:7f00:1]/hook',
+        'http://[::ffff:169.254.169.254]/hook',
+        'http://[::ffff:a9fe:a9fe]/hook',
+        'http://[::ffff:10.0.0.1]/hook',
+        'http://[::ffff:192.168.1.1]/hook',
+        'http://[::ffff:172.16.0.1]/hook',
+        'http://[::127.0.0.1]/hook',
+        'http://[2002:7f00:1::]/hook',
+        'http://[2002:a9fe:a9fe::]/hook'
+      ];
+
+      for (const url of blockedMapped) {
+        const res = validateOutboundWebhookUrl(url);
+        assert.equal(res.valid, false, 'Expected blocked: ' + url);
+        assert.match(res.error, /loopback or private network/);
+      }
+    });
+
+    test('blocks internal hostnames, metadata endpoints, and private TLDs', () => {
+      delete process.env.YOUPI_ALLOW_PRIVATE_WEBHOOKS;
+
+      const blockedHosts = [
+        'http://localhost/hook',
+        'http://localhost.localdomain/hook',
+        'http://metadata/computeMetadata/v1',
+        'http://metadata.google.internal/hook',
+        'http://instance-data/latest/meta-data',
+        'http://router/hook',
+        'http://intranet/hook',
+        'http://service.local/hook',
+        'http://api.internal/hook',
+        'http://test.localhost/hook',
+        'http://gateway.lan/hook',
+        'http://server.home.arpa/hook',
+        'http://domain.corp/hook'
+      ];
+
+      for (const url of blockedHosts) {
+        const res = validateOutboundWebhookUrl(url);
+        assert.equal(res.valid, false, 'Expected blocked: ' + url);
+        assert.match(res.error, /loopback or private network/);
+      }
+    });
+
+    test('allows legitimate public webhook targets', () => {
+      delete process.env.YOUPI_ALLOW_PRIVATE_WEBHOOKS;
+
+      const allowed = [
+        'https://example.com/webhook',
+        'https://api.github.com/events',
+        'https://hooks.slack.com/services/T00/B00/X00',
+        'http://93.184.216.34/webhook',
+        'http://[2606:2800:220:1:248:1893:25c8:1946]/webhook',
+        'http://[::ffff:93.184.216.34]/webhook'
+      ];
+
+      for (const url of allowed) {
+        const res = validateOutboundWebhookUrl(url);
+        assert.equal(res.valid, true, 'Expected allowed: ' + url);
+        assert.ok(res.url instanceof URL);
+      }
+    });
+
+    test('allows loopback and private LAN addresses when explicitly opted in', () => {
+      process.env.YOUPI_ALLOW_PRIVATE_WEBHOOKS = 'true';
+
+      const privateAllowed = [
+        'http://localhost:5000/webhook',
+        'http://127.0.0.1:8000/webhook',
+        'http://192.168.1.100:3000/webhook',
+        'http://[::1]:9000/webhook'
+      ];
+
+      for (const url of privateAllowed) {
+        const res = validateOutboundWebhookUrl(url);
+        assert.equal(res.valid, true, 'Expected allowed under opt-in: ' + url);
+      }
+
+      // Cleanup
+      if (origAllowPrivate === undefined) {
+        delete process.env.YOUPI_ALLOW_PRIVATE_WEBHOOKS;
+      } else {
+        process.env.YOUPI_ALLOW_PRIVATE_WEBHOOKS = origAllowPrivate;
+      }
+    });
+  });
+

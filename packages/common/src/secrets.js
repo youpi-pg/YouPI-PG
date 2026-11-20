@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { encrypt, decrypt } from './crypto.js';
 
@@ -278,26 +279,178 @@ export function hasBearer(req, ...tokens) {
   return tokens.some(t => safeEqual(presented, t));
 }
 
-const BLOCKED_HOSTNAMES = new Set(['localhost', 'localhost.localdomain', 'ip6-localhost', 'ip6-loopback']);
+const BLOCKED_HOSTNAMES = new Set([
+  'localhost',
+  'localhost.localdomain',
+  'ip6-localhost',
+  'ip6-loopback',
+  'metadata',
+  'metadata.google.internal',
+  'instance-data'
+]);
 
-/** True for loopback, RFC1918, link-local, CGNAT, multicast and reserved IPv4/IPv6 ranges. */
+/**
+ * Checks whether an IPv4 address (a.b.c.d) belongs to any private, loopback,
+ * link-local, CGNAT, multicast, documentation or reserved range.
+ */
+function isPrivateIpv4(a, b, c, d) {
+  // Current network (0.0.0.0/8)
+  if (a === 0) return true;
+  // Private-use (10.0.0.0/8)
+  if (a === 10) return true;
+  // Loopback (127.0.0.0/8)
+  if (a === 127) return true;
+  // Shared Address Space / CGNAT (100.64.0.0/10)
+  if (a === 100 && b >= 64 && b <= 127) return true;
+  // Link-Local / Cloud metadata (169.254.0.0/16)
+  if (a === 169 && b === 254) return true;
+  // Private-use (172.16.0.0/12)
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  // IETF Protocol Assignments (192.0.0.0/24)
+  if (a === 192 && b === 0 && c === 0) return true;
+  // TEST-NET-1 (192.0.2.0/24)
+  if (a === 192 && b === 0 && c === 2) return true;
+  // 6to4 relay anycast (192.88.99.0/24)
+  if (a === 192 && b === 88 && c === 99) return true;
+  // Private-use (192.168.0.0/16)
+  if (a === 192 && b === 168) return true;
+  // Benchmark testing (198.18.0.0/15)
+  if (a === 198 && (b === 18 || b === 19)) return true;
+  // TEST-NET-2 (198.51.100.0/24)
+  if (a === 198 && b === 51 && c === 100) return true;
+  // TEST-NET-3 (203.0.113.0/24)
+  if (a === 203 && b === 0 && c === 113) return true;
+  // Multicast (224.0.0.0/4) & Reserved (240.0.0.0/4, includes 255.255.255.255)
+  if (a >= 224) return true;
+  return false;
+}
+
+/**
+ * Parses a normalized IPv6 string into an array of 8 16-bit integers.
+ * Supports standard shorthand notation ('::') and embedded IPv4 suffixes.
+ * @param {string} str
+ * @returns {number[] | null}
+ */
+function parseIpv6(str) {
+  let clean = str.toLowerCase();
+  const zoneIndex = clean.indexOf('%');
+  if (zoneIndex !== -1) clean = clean.slice(0, zoneIndex);
+
+  // Expand embedded IPv4 suffix if present (e.g. ::ffff:192.168.1.1)
+  const lastColon = clean.lastIndexOf(':');
+  if (lastColon !== -1) {
+    const afterColon = clean.slice(lastColon + 1);
+    const v4 = afterColon.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (v4) {
+      const p = v4.slice(1).map(Number);
+      if (p.some(n => n > 255)) return null;
+      const hi = ((p[0] << 8) | p[1]).toString(16);
+      const lo = ((p[2] << 8) | p[3]).toString(16);
+      clean = clean.slice(0, lastColon) + ':' + hi + ':' + lo;
+    }
+  }
+
+  const parts = clean.split('::');
+  if (parts.length > 2) return null;
+  const left = parts[0] ? parts[0].split(':').map(h => parseInt(h, 16)) : [];
+  const right = parts.length === 2 && parts[1] ? parts[1].split(':').map(h => parseInt(h, 16)) : [];
+  if (left.some(isNaN) || right.some(isNaN)) return null;
+  const pad = 8 - (left.length + right.length);
+  if (pad < 0) return null;
+  return [...left, ...new Array(pad).fill(0), ...right];
+}
+
+/**
+ * Checks whether an IPv6 address belongs to any private, loopback, link-local,
+ * unique-local, multicast, translated, documentation or reserved range.
+ */
+function isPrivateIpv6(words) {
+  if (!words || words.length !== 8) return false;
+  const [w0, w1, w2, w3, w4, w5, w6, w7] = words;
+
+  // Unspecified address (::)
+  if (words.every(w => w === 0)) return true;
+
+  // Loopback (::1)
+  if (w0 === 0 && w1 === 0 && w2 === 0 && w3 === 0 && w4 === 0 && w5 === 0 && w6 === 0 && w7 === 1) return true;
+
+  // IPv4-mapped IPv6 (::ffff:0:0/96)
+  if (w0 === 0 && w1 === 0 && w2 === 0 && w3 === 0 && w4 === 0 && w5 === 0xffff) {
+    return isPrivateIpv4(w6 >> 8, w6 & 0xff, w7 >> 8, w7 & 0xff);
+  }
+
+  // IPv4-compatible IPv6 (::0:0/96, deprecated RFC 4291)
+  if (w0 === 0 && w1 === 0 && w2 === 0 && w3 === 0 && w4 === 0 && w5 === 0 && (w6 !== 0 || w7 > 1)) {
+    return isPrivateIpv4(w6 >> 8, w6 & 0xff, w7 >> 8, w7 & 0xff);
+  }
+
+  // 6to4 translation (2002::/16) - embeds IPv4 in w1 and w2
+  if (w0 === 0x2002) {
+    return isPrivateIpv4(w1 >> 8, w1 & 0xff, w2 >> 8, w2 & 0xff);
+  }
+
+  // NAT64 well-known prefix (64:ff9b::/96)
+  if (w0 === 0x0064 && w1 === 0xff9b && w2 === 0 && w3 === 0 && w4 === 0 && w5 === 0) {
+    return isPrivateIpv4(w6 >> 8, w6 & 0xff, w7 >> 8, w7 & 0xff);
+  }
+
+  // Unique Local Address ULA (fc00::/7)
+  if ((w0 & 0xfe00) === 0xfc00) return true;
+
+  // Link-Local Unicast (fe80::/10)
+  if ((w0 & 0xffc0) === 0xfe80) return true;
+
+  // Multicast (ff00::/8)
+  if ((w0 & 0xff00) === 0xff00) return true;
+
+  // Discard prefix (100::/64, RFC 6666)
+  if (w0 === 0x0100 && w1 === 0 && w2 === 0 && w3 === 0) return true;
+
+  // Documentation (2001:db8::/32)
+  if (w0 === 0x2001 && w1 === 0x0db8) return true;
+
+  // Benchmarking (2001:20::/28)
+  if (w0 === 0x2001 && (w1 & 0xfff0) === 0x0020) return true;
+
+  return false;
+}
+
+/** True for loopback, RFC1918, link-local, CGNAT, multicast, translated and reserved IPv4/IPv6 ranges or private TLDs. */
 function isPrivateAddress(hostname) {
   const lower = hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  if (lower === '::1' || lower === '::' || lower === '0.0.0.0') return true;
-  if (lower.endsWith('.local') || lower.endsWith('.internal') || lower.endsWith('.localhost')) return true;
 
-  const v4 = lower.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (!v4) {
-    // Unique-local (fc00::/7) and link-local (fe80::/10) IPv6.
-    return /^f[cd][0-9a-f]{2}:/.test(lower) || /^fe[89ab][0-9a-f]:/.test(lower);
+  if (BLOCKED_HOSTNAMES.has(lower)) return true;
+
+  // Special-use and private TLDs (RFC 6761, RFC 6762, RFC 8375)
+  if (
+    lower.endsWith('.local') ||
+    lower.endsWith('.internal') ||
+    lower.endsWith('.localhost') ||
+    lower.endsWith('.lan') ||
+    lower.endsWith('.home.arpa') ||
+    lower.endsWith('.corp') ||
+    lower.endsWith('.invalid') ||
+    lower.endsWith('.test') ||
+    lower.endsWith('.example')
+  ) {
+    return true;
   }
-  const [a, b] = [Number(v4[1]), Number(v4[2])];
-  if (a === 10 || a === 127 || a === 0) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true;
-  if (a >= 224) return true;
+
+  // Single-label hostnames without dots or colons are internal/intranet names
+  if (!lower.includes('.') && !lower.includes(':')) {
+    return true;
+  }
+
+  if (net.isIPv4(lower)) {
+    const parts = lower.split('.').map(Number);
+    return isPrivateIpv4(parts[0], parts[1], parts[2], parts[3]);
+  }
+
+  if (net.isIPv6(lower)) {
+    const words = parseIpv6(lower);
+    return isPrivateIpv6(words);
+  }
+
   return false;
 }
 
